@@ -349,7 +349,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
     }
   } catch (err) {
     error = `[${err.code || "unknown"}] ${err.message}`;
-    console.error(`[CONNECT-DBG] Error: ${error}`);
+    console.error(`[CONNECT] Error: ${error}`);
   } finally {
     // Signal the generator to close (request stream half-close)
     closeGenerator?.();
@@ -465,7 +465,7 @@ export async function makeConnectBidiRequest(baseUrl, messages, modelName, tools
             });
             pushResult(toolResultMsg);
           } catch (toolErr) {
-            console.error(`[CONNECT] Tool execution error: ${toolErr.message}`);
+            console.error(`[CONNECT] Tool error: ${toolErr.message}`);
           }
         }
       }

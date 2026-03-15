@@ -1,6 +1,7 @@
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
+import { errorResponse } from "../utils/error.js";
 import { buildCursorHeaders } from "../utils/cursorChecksum.js";
 import { makeConnectRequest } from "../utils/cursorConnect.js";
 import { estimateUsage } from "../utils/usageTracking.js";
@@ -9,26 +10,6 @@ import { FORMATS } from "../translator/formats.js";
 // Env-gated debug logging (set CURSOR_DEBUG=1 to enable)
 const CURSOR_DEBUG = process.env.CURSOR_DEBUG === "1";
 const debugLog = (...args) => CURSOR_DEBUG && console.log(...args);
-
-function createErrorResponse(jsonError) {
-  const errorMsg = jsonError?.error?.details?.[0]?.debug?.details?.title
-    || jsonError?.error?.details?.[0]?.debug?.details?.detail
-    || jsonError?.error?.message
-    || "API Error";
-
-  const isRateLimit = jsonError?.error?.code === "resource_exhausted";
-
-  return new Response(JSON.stringify({
-    error: {
-      message: errorMsg,
-      type: isRateLimit ? "rate_limit_error" : "api_error",
-      code: jsonError?.error?.details?.[0]?.debug?.error || "unknown"
-    }
-  }), {
-    status: isRateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.BAD_REQUEST,
-    headers: { "Content-Type": "application/json" }
-  });
-}
 
 export class CursorExecutor extends BaseExecutor {
   constructor() {
@@ -189,7 +170,7 @@ export class CursorExecutor extends BaseExecutor {
     for (const frame of frames) {
       if (frame.error) {
         if (chunks.length === 0 && totalContent === "" && toolCallsMap.size === 0) {
-          return createErrorResponse({ error: { message: frame.error } });
+          return errorResponse(HTTP_STATUS.SERVER_ERROR, frame.error);
         }
         break;
       }
