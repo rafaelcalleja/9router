@@ -15,7 +15,7 @@ import {
   StreamUnifiedChatRequestWithToolsSchema,
   ClientSideToolV2ResultSchema,
   MCPResultSchema,
-} from "../../scripts/gen/cursor_pb.js";
+} from "../gen/cursor_pb.js";
 
 import { buildCursorHeaders } from "./cursorChecksum.js";
 
@@ -26,6 +26,10 @@ const UNIFIED_MODE = { CHAT: 1, AGENT: 2 };
 const THINKING_LEVEL = { UNSPECIFIED: 0, MEDIUM: 1, HIGH: 2 };
 const CLIENT_SIDE_TOOL_V2_MCP = 19;
 
+// Env-gated debug logging (set CURSOR_CONNECT_DEBUG=1 to enable)
+const CURSOR_CONNECT_DEBUG = process.env.CURSOR_CONNECT_DEBUG === "1";
+const debugLog = (...args) => CURSOR_CONNECT_DEBUG && console.log(...args);
+
 // ==================== TRANSPORT FACTORY ====================
 
 /**
@@ -34,14 +38,16 @@ const CLIENT_SIDE_TOOL_V2_MCP = 19;
  */
 const transportCache = new Map();
 
-function getTransport(baseUrl, credentials) {
+function getTransport(baseUrl, credentials, configHeaders = {}) {
   const cacheKey = `${baseUrl}:${credentials.accessToken?.slice(-8)}`;
   if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
 
   const accessToken = credentials.accessToken;
   const machineId = credentials.providerSpecificData?.machineId;
   const ghostMode = credentials.providerSpecificData?.ghostMode !== false;
-  const headers = buildCursorHeaders(accessToken, machineId, ghostMode);
+  const headers = buildCursorHeaders(accessToken, machineId, ghostMode, {
+    headers: configHeaders
+  });
 
   // Filter headers for ConnectRPC (skip pseudo-headers and te)
   const connectHeaders = {};
@@ -255,7 +261,7 @@ function buildToolResultRequest(tr) {
  * Make a ConnectRPC request to Cursor API.
  * Returns an array of decoded response frames for streaming.
  *
- * @param {string} baseUrl - Cursor API base URL
+ * @param {Object} config - Provider config {baseUrl, headers, clientVersion, ...}
  * @param {Array} messages - OpenAI-format messages
  * @param {string} modelName - Model name
  * @param {Array} tools - Tools
@@ -263,15 +269,15 @@ function buildToolResultRequest(tr) {
  * @param {Object} opts - {reasoningEffort, maxMode, signal, skipToolResultFrames}
  * @returns {Promise<CursorResponse>}
  */
-export async function makeConnectRequest(baseUrl, messages, modelName, tools, credentials, opts = {}) {
-  console.log(`[CONNECT-DBG] makeConnectRequest start: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
-  const transport = getTransport(baseUrl, credentials);
+export async function makeConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
+  const baseUrl = config.baseUrl || config;
+  debugLog(`[CONNECT] makeConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
+  const transport = getTransport(baseUrl, credentials, config.headers);
   const client = createClient(ChatService, transport);
-  console.log(`[CONNECT-DBG] Building request...`);
   const { request } = buildConnectRequest(
     messages, modelName, tools, opts.reasoningEffort, opts.maxMode
   );
-  console.log(`[CONNECT-DBG] Request built. mcpTools=${request.request?.mcpTools?.length || 0}, isAgentic=${request.request?.isAgentic}, unifiedMode=${request.request?.unifiedMode}`);
+  debugLog(`[CONNECT] Request built: mcpTools=${request.request?.mcpTools?.length || 0}, isAgentic=${request.request?.isAgentic}, unifiedMode=${request.request?.unifiedMode}`);
 
   const frames = [];
   let textTotal = "";
@@ -283,22 +289,17 @@ export async function makeConnectRequest(baseUrl, messages, modelName, tools, cr
   // Closing too early (half-close) causes Cursor to truncate responses.
   let closeGenerator;
   async function* requestStream() {
-    console.log(`[CONNECT-DBG] requestStream: yielding initial request`);
     yield request;
-    console.log(`[CONNECT-DBG] requestStream: waiting for response to complete...`);
     await new Promise(r => { closeGenerator = r; });
-    console.log(`[CONNECT-DBG] requestStream: signaled to close`);
   }
 
   try {
-    console.log(`[CONNECT-DBG] Starting streamUnifiedChatWithTools...`);
     const stream = client.streamUnifiedChatWithTools(requestStream());
-    console.log(`[CONNECT-DBG] Stream created, starting iteration...`);
     let frameCount = 0;
 
     for await (const response of stream) {
       frameCount++;
-      console.log(`[CONNECT-DBG] Frame #${frameCount}: text=${(response.response?.text || '').length}chars, toolCall=${!!response.toolCall?.toolCallId}`);
+      debugLog(`[CONNECT] Frame #${frameCount}: text=${(response.response?.text || '').length}chars, toolCall=${!!response.toolCall?.toolCallId}`);
       // Extract text
       const text = response.response?.text || "";
       const thinking = response.response?.thinking;
@@ -338,7 +339,7 @@ export async function makeConnectRequest(baseUrl, messages, modelName, tools, cr
 
         // Got a complete tool call — close the request stream and stop reading
         if (isLast || tc.rawArgs) {
-          console.log(`[CONNECT-DBG] Got complete tool_call (isLast=${isLast}), closing stream`);
+          debugLog(`[CONNECT] Got complete tool_call (isLast=${isLast}), closing stream`);
           frames.push(frame);
           break;
         }
@@ -356,11 +357,11 @@ export async function makeConnectRequest(baseUrl, messages, modelName, tools, cr
 
   // Abort error after break is expected when we got tool_calls
   if (error && toolCalls.length > 0 && frames.length > 0) {
-    console.log(`[CONNECT-DBG] Clearing abort error — got ${toolCalls.length} tool_calls with ${frames.length} frames`);
+    debugLog(`[CONNECT] Clearing abort error — got ${toolCalls.length} tool_calls with ${frames.length} frames`);
     error = null;
   }
 
-  console.log(`[CONNECT-DBG] Returning: frames=${frames.length}, text=${textTotal.length}chars, toolCalls=${toolCalls.length}, error=${error || 'none'}`);
+  debugLog(`[CONNECT] Result: frames=${frames.length}, text=${textTotal.length}chars, toolCalls=${toolCalls.length}, error=${error || 'none'}`);
   return { text: textTotal, toolCalls, thinkingText, frames, error };
 }
 
