@@ -68,7 +68,7 @@ export class CursorExecutor extends BaseExecutor {
         const isRateLimit = isRateLimitError(result.error);
         log?.warn?.("CURSOR", `ConnectRPC error: ${result.error}`);
 
-        const status = isAuth ? 401 : isRateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.SERVER_ERROR;
+        const status = isAuth ? 401 : isRateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.BAD_REQUEST;
         const type = isAuth ? "authentication_error" : isRateLimit ? "rate_limit_error" : "api_error";
         const code = isAuth ? "unauthorized" : isRateLimit ? "rate_limited" : "";
 
@@ -114,15 +114,14 @@ export class CursorExecutor extends BaseExecutor {
     for (const frame of frames) {
       if (frame.error) {
         if (!totalContent && toolCallsMap.size === 0) {
-          const rateLimit = isRateLimitError(frame.error);
           return new Response(JSON.stringify({
             error: {
               message: frame.error,
-              type: rateLimit ? "rate_limit_error" : "api_error",
-              code: rateLimit ? "rate_limited" : ""
+              type: "rate_limit_error",
+              code: "rate_limited"
             }
           }), {
-            status: rateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.SERVER_ERROR,
+            status: HTTP_STATUS.RATE_LIMITED,
             headers: { "Content-Type": "application/json" }
           });
         }
@@ -192,8 +191,7 @@ export class CursorExecutor extends BaseExecutor {
     for (const frame of frames) {
       if (frame.error) {
         if (chunks.length === 0 && totalContent === "" && toolCallsMap.size === 0) {
-          const status = isRateLimitError(frame.error) ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.SERVER_ERROR;
-          return errorResponse(status, frame.error);
+          return errorResponse(HTTP_STATUS.RATE_LIMITED, frame.error);
         }
         break;
       }
