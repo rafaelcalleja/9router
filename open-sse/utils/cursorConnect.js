@@ -188,7 +188,7 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
       text: content,
       role,
       messageId: msgId,
-      chatModeEnum: 1,
+      chatModeEnum: isAgentic ? 2 : 1,
       toolResults,
     });
 
@@ -253,7 +253,7 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
       thinkingLevel,
       usesRules: false,
       modeUsesAutoApply: isAgentic,
-      unifiedModeName: isAgentic ? "Agent" : "Ask",
+      unifiedModeName: isAgentic ? "agent" : "Ask",
     }
   });
 
