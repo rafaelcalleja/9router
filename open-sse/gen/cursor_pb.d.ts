@@ -11,6 +11,331 @@ import type { Message } from "@bufbuild/protobuf";
 export declare const file_cursor: GenFile;
 
 /**
+ * ErrorDetails — extracted from Cursor's aiserver.v1.ErrorDetails
+ * Used to parse rich error information from ConnectRPC error details.
+ *
+ * @generated from message aiserver.v1.ErrorDetails
+ */
+export declare type ErrorDetails = Message<"aiserver.v1.ErrorDetails"> & {
+  /**
+   * @generated from field: aiserver.v1.ErrorDetails.Error error = 1;
+   */
+  error: ErrorDetails_Error;
+
+  /**
+   * @generated from field: aiserver.v1.CustomErrorDetails details = 2;
+   */
+  details?: CustomErrorDetails;
+
+  /**
+   * @generated from field: optional bool is_expected = 3;
+   */
+  isExpected?: boolean;
+};
+
+/**
+ * Describes the message aiserver.v1.ErrorDetails.
+ * Use `create(ErrorDetailsSchema)` to create a new message.
+ */
+export declare const ErrorDetailsSchema: GenMessage<ErrorDetails>;
+
+/**
+ * @generated from enum aiserver.v1.ErrorDetails.Error
+ */
+export enum ErrorDetails_Error {
+  /**
+   * @generated from enum value: ERROR_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: ERROR_BAD_API_KEY = 1;
+   */
+  BAD_API_KEY = 1,
+
+  /**
+   * @generated from enum value: ERROR_NOT_LOGGED_IN = 2;
+   */
+  NOT_LOGGED_IN = 2,
+
+  /**
+   * @generated from enum value: ERROR_INVALID_AUTH_ID = 3;
+   */
+  INVALID_AUTH_ID = 3,
+
+  /**
+   * @generated from enum value: ERROR_NOT_HIGH_ENOUGH_PERMISSIONS = 4;
+   */
+  NOT_HIGH_ENOUGH_PERMISSIONS = 4,
+
+  /**
+   * @generated from enum value: ERROR_BAD_MODEL_NAME = 5;
+   */
+  BAD_MODEL_NAME = 5,
+
+  /**
+   * @generated from enum value: ERROR_USER_NOT_FOUND = 6;
+   */
+  USER_NOT_FOUND = 6,
+
+  /**
+   * @generated from enum value: ERROR_FREE_USER_RATE_LIMIT_EXCEEDED = 7;
+   */
+  FREE_USER_RATE_LIMIT_EXCEEDED = 7,
+
+  /**
+   * @generated from enum value: ERROR_PRO_USER_RATE_LIMIT_EXCEEDED = 8;
+   */
+  PRO_USER_RATE_LIMIT_EXCEEDED = 8,
+
+  /**
+   * @generated from enum value: ERROR_FREE_USER_USAGE_LIMIT = 9;
+   */
+  FREE_USER_USAGE_LIMIT = 9,
+
+  /**
+   * @generated from enum value: ERROR_PRO_USER_USAGE_LIMIT = 10;
+   */
+  PRO_USER_USAGE_LIMIT = 10,
+
+  /**
+   * @generated from enum value: ERROR_AUTH_TOKEN_NOT_FOUND = 11;
+   */
+  AUTH_TOKEN_NOT_FOUND = 11,
+
+  /**
+   * @generated from enum value: ERROR_AUTH_TOKEN_EXPIRED = 12;
+   */
+  AUTH_TOKEN_EXPIRED = 12,
+
+  /**
+   * @generated from enum value: ERROR_OPENAI = 13;
+   */
+  OPENAI = 13,
+
+  /**
+   * @generated from enum value: ERROR_OPENAI_RATE_LIMIT_EXCEEDED = 14;
+   */
+  OPENAI_RATE_LIMIT_EXCEEDED = 14,
+
+  /**
+   * @generated from enum value: ERROR_OPENAI_ACCOUNT_LIMIT_EXCEEDED = 15;
+   */
+  OPENAI_ACCOUNT_LIMIT_EXCEEDED = 15,
+
+  /**
+   * @generated from enum value: ERROR_TASK_UUID_NOT_FOUND = 16;
+   */
+  TASK_UUID_NOT_FOUND = 16,
+
+  /**
+   * @generated from enum value: ERROR_TASK_NO_PERMISSIONS = 17;
+   */
+  TASK_NO_PERMISSIONS = 17,
+
+  /**
+   * @generated from enum value: ERROR_AGENT_REQUIRES_LOGIN = 18;
+   */
+  AGENT_REQUIRES_LOGIN = 18,
+
+  /**
+   * @generated from enum value: ERROR_AGENT_ENGINE_NOT_FOUND = 19;
+   */
+  AGENT_ENGINE_NOT_FOUND = 19,
+
+  /**
+   * @generated from enum value: ERROR_MAX_TOKENS = 20;
+   */
+  MAX_TOKENS = 20,
+
+  /**
+   * @generated from enum value: ERROR_USER_ABORTED_REQUEST = 21;
+   */
+  USER_ABORTED_REQUEST = 21,
+
+  /**
+   * @generated from enum value: ERROR_GENERIC_RATE_LIMIT_EXCEEDED = 22;
+   */
+  GENERIC_RATE_LIMIT_EXCEEDED = 22,
+
+  /**
+   * @generated from enum value: ERROR_PRO_USER_ONLY = 23;
+   */
+  PRO_USER_ONLY = 23,
+
+  /**
+   * @generated from enum value: ERROR_API_KEY_NOT_SUPPORTED = 24;
+   */
+  API_KEY_NOT_SUPPORTED = 24,
+
+  /**
+   * @generated from enum value: ERROR_TIMEOUT = 25;
+   */
+  TIMEOUT = 25,
+
+  /**
+   * @generated from enum value: ERROR_SLASH_EDIT_FILE_TOO_LONG = 26;
+   */
+  SLASH_EDIT_FILE_TOO_LONG = 26,
+
+  /**
+   * @generated from enum value: ERROR_FILE_UNSUPPORTED = 27;
+   */
+  FILE_UNSUPPORTED = 27,
+
+  /**
+   * @generated from enum value: ERROR_GPT_4_VISION_PREVIEW_RATE_LIMIT = 28;
+   */
+  GPT_4_VISION_PREVIEW_RATE_LIMIT = 28,
+
+  /**
+   * @generated from enum value: ERROR_CUSTOM_MESSAGE = 29;
+   */
+  CUSTOM_MESSAGE = 29,
+
+  /**
+   * @generated from enum value: ERROR_OUTDATED_CLIENT = 30;
+   */
+  OUTDATED_CLIENT = 30,
+
+  /**
+   * @generated from enum value: ERROR_CLAUDE_IMAGE_TOO_LARGE = 31;
+   */
+  CLAUDE_IMAGE_TOO_LARGE = 31,
+
+  /**
+   * @generated from enum value: ERROR_GITGRAPH_NOT_FOUND = 32;
+   */
+  GITGRAPH_NOT_FOUND = 32,
+
+  /**
+   * @generated from enum value: ERROR_FILE_NOT_FOUND = 33;
+   */
+  FILE_NOT_FOUND = 33,
+
+  /**
+   * @generated from enum value: ERROR_API_KEY_RATE_LIMIT = 34;
+   */
+  API_KEY_RATE_LIMIT = 34,
+
+  /**
+   * @generated from enum value: ERROR_DEBOUNCED = 35;
+   */
+  DEBOUNCED = 35,
+
+  /**
+   * @generated from enum value: ERROR_BAD_REQUEST = 36;
+   */
+  BAD_REQUEST = 36,
+
+  /**
+   * @generated from enum value: ERROR_REPOSITORY_SERVICE_REPOSITORY_IS_NOT_INITIALIZED = 37;
+   */
+  REPOSITORY_SERVICE_REPOSITORY_IS_NOT_INITIALIZED = 37,
+
+  /**
+   * @generated from enum value: ERROR_UNAUTHORIZED = 38;
+   */
+  UNAUTHORIZED = 38,
+
+  /**
+   * @generated from enum value: ERROR_NOT_FOUND = 39;
+   */
+  NOT_FOUND = 39,
+
+  /**
+   * @generated from enum value: ERROR_DEPRECATED = 40;
+   */
+  DEPRECATED = 40,
+
+  /**
+   * @generated from enum value: ERROR_RESOURCE_EXHAUSTED = 41;
+   */
+  RESOURCE_EXHAUSTED = 41,
+
+  /**
+   * @generated from enum value: ERROR_BAD_USER_API_KEY = 42;
+   */
+  BAD_USER_API_KEY = 42,
+
+  /**
+   * @generated from enum value: ERROR_CONVERSATION_TOO_LONG = 43;
+   */
+  CONVERSATION_TOO_LONG = 43,
+
+  /**
+   * @generated from enum value: ERROR_USAGE_PRICING_REQUIRED = 44;
+   */
+  USAGE_PRICING_REQUIRED = 44,
+
+  /**
+   * @generated from enum value: ERROR_USAGE_PRICING_REQUIRED_CHANGEABLE = 45;
+   */
+  USAGE_PRICING_REQUIRED_CHANGEABLE = 45,
+
+  /**
+   * @generated from enum value: ERROR_GITHUB_NO_USER_CREDENTIALS = 46;
+   */
+  GITHUB_NO_USER_CREDENTIALS = 46,
+
+  /**
+   * @generated from enum value: ERROR_GITHUB_USER_NO_ACCESS = 47;
+   */
+  GITHUB_USER_NO_ACCESS = 47,
+
+  /**
+   * @generated from enum value: ERROR_GITHUB_APP_NO_ACCESS = 48;
+   */
+  GITHUB_APP_NO_ACCESS = 48,
+
+  /**
+   * @generated from enum value: ERROR_GITHUB_MULTIPLE_OWNERS = 49;
+   */
+  GITHUB_MULTIPLE_OWNERS = 49,
+
+  /**
+   * @generated from enum value: ERROR_RATE_LIMITED = 50;
+   */
+  RATE_LIMITED = 50,
+
+  /**
+   * @generated from enum value: ERROR_RATE_LIMITED_CHANGEABLE = 51;
+   */
+  RATE_LIMITED_CHANGEABLE = 51,
+}
+
+/**
+ * Describes the enum aiserver.v1.ErrorDetails.Error.
+ */
+export declare const ErrorDetails_ErrorSchema: GenEnum<ErrorDetails_Error>;
+
+/**
+ * @generated from message aiserver.v1.CustomErrorDetails
+ */
+export declare type CustomErrorDetails = Message<"aiserver.v1.CustomErrorDetails"> & {
+  /**
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string detail = 2;
+   */
+  detail: string;
+
+  /**
+   * @generated from field: map<string, string> additional_info = 7;
+   */
+  additionalInfo: { [key: string]: string };
+};
+
+/**
+ * Describes the message aiserver.v1.CustomErrorDetails.
+ * Use `create(CustomErrorDetailsSchema)` to create a new message.
+ */
+export declare const CustomErrorDetailsSchema: GenMessage<CustomErrorDetails>;
+
+/**
  * ConversationMessage — field 1 of StreamUnifiedChatRequest
  *
  * @generated from message aiserver.v1.ConversationMessage

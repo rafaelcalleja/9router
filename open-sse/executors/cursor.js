@@ -64,17 +64,26 @@ export class CursorExecutor extends BaseExecutor {
       );
 
       if (result.error) {
-        const isAuth = result.error.includes('[16]') || result.error.includes('unauthenticated');
-        const isRateLimit = isRateLimitError(result.error);
-        log?.warn?.("CURSOR", `ConnectRPC error: ${result.error}`);
+        const err = result.error; // { message, code, errorDetails }
+        const isAuth = err.message.includes('[16]') || err.message.includes('unauthenticated');
+        const isRateLimit = isRateLimitError(err.message);
+        log?.warn?.("CURSOR", `ConnectRPC error: ${err.message}`);
+
+        // Use ErrorDetails for richer error info when available (matches old createErrorResponse)
+        const errorMsg = err.errorDetails?.title
+          || err.errorDetails?.detail
+          || err.message
+          || "API Error";
 
         const status = isAuth ? 401 : isRateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.BAD_REQUEST;
         const type = isAuth ? "authentication_error" : isRateLimit ? "rate_limit_error" : "api_error";
-        const code = isAuth ? "unauthorized" : isRateLimit ? "rate_limited" : "";
+        const code = isAuth ? "unauthorized"
+          : err.errorDetails?.error != null ? String(err.errorDetails.error)
+          : isRateLimit ? "rate_limited" : "";
 
         return {
           response: new Response(JSON.stringify({
-            error: { message: result.error, type, code }
+            error: { message: errorMsg, type, code }
           }), {
             status,
             headers: { "Content-Type": "application/json" }

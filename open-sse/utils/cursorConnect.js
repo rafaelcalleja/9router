@@ -15,6 +15,7 @@ import {
   StreamUnifiedChatRequestWithToolsSchema,
   ClientSideToolV2ResultSchema,
   MCPResultSchema,
+  ErrorDetailsSchema,
 } from "../gen/cursor_pb.js";
 
 import { buildCursorHeaders } from "./cursorChecksum.js";
@@ -29,6 +30,38 @@ const CLIENT_SIDE_TOOL_V2_MCP = 19;
 // Env-gated debug logging (set CURSOR_CONNECT_DEBUG=1 to enable)
 const CURSOR_CONNECT_DEBUG = process.env.CURSOR_CONNECT_DEBUG === "1";
 const debugLog = (...args) => CURSOR_CONNECT_DEBUG && console.log(...args);
+
+/**
+ * Extract ErrorDetails from a ConnectRPC error (if present).
+ * Returns { message, code, errorDetails } where errorDetails
+ * contains the Cursor-specific error enum and custom details.
+ */
+function extractErrorInfo(err) {
+  const code = err.code || "unknown";
+  const message = `[${code}] ${err.message}`;
+  let errorDetails = null;
+
+  // ConnectError has findDetails() to extract typed protobuf error details
+  if (typeof err.findDetails === "function") {
+    try {
+      const details = err.findDetails(ErrorDetailsSchema);
+      if (details.length > 0) {
+        const d = details[0];
+        errorDetails = {
+          error: d.error,           // Cursor error enum value (e.g. 41 for RESOURCE_EXHAUSTED)
+          title: d.details?.title || null,
+          detail: d.details?.detail || null,
+          isExpected: d.isExpected || false,
+        };
+        debugLog(`[CONNECT] ErrorDetails: error=${d.error}, title=${d.details?.title}, detail=${d.details?.detail}`);
+      }
+    } catch (e) {
+      debugLog(`[CONNECT] Failed to parse ErrorDetails: ${e.message}`);
+    }
+  }
+
+  return { message, code, errorDetails };
+}
 
 // ==================== TRANSPORT FACTORY ====================
 
@@ -348,8 +381,9 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
       frames.push(frame);
     }
   } catch (err) {
-    error = `[${err.code || "unknown"}] ${err.message}`;
-    console.error(`[CONNECT] Error: ${error}`);
+    const errorInfo = extractErrorInfo(err);
+    error = errorInfo;
+    console.error(`[CONNECT] Error: ${errorInfo.message}`);
   } finally {
     // Signal the generator to close (request stream half-close)
     closeGenerator?.();
@@ -361,7 +395,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
     error = null;
   }
 
-  debugLog(`[CONNECT] Result: frames=${frames.length}, text=${textTotal.length}chars, toolCalls=${toolCalls.length}, error=${error || 'none'}`);
+  debugLog(`[CONNECT] Result: frames=${frames.length}, text=${textTotal.length}chars, toolCalls=${toolCalls.length}, error=${error?.message || 'none'}`);
   return { text: textTotal, toolCalls, thinkingText, frames, error };
 }
 
@@ -473,8 +507,9 @@ export async function makeConnectBidiRequest(baseUrl, messages, modelName, tools
       frames.push(frame);
     }
   } catch (err) {
-    error = `[${err.code || "unknown"}] ${err.message}`;
-    console.error(`[CONNECT] Bidi error: ${error}`);
+    const errorInfo = extractErrorInfo(err);
+    error = errorInfo;
+    console.error(`[CONNECT] Bidi error: ${errorInfo.message}`);
   } finally {
     markDone();
   }

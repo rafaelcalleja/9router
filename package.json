@@ -9,7 +9,8 @@
     "start": "NODE_ENV=production next start",
     "dev:bun": "bun --bun next dev --webpack --port 20128",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
-    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js"
+    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js",
+    "proto:gen": "buf generate"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.11.0",
@@ -42,6 +43,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@bufbuild/buf": "^1.66.1",
     "@bufbuild/protoc-gen-es": "^2.11.0",
     "@tailwindcss/postcss": "^4.1.18",
     "eslint": "^9",
