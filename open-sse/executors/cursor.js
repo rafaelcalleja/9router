@@ -53,13 +53,16 @@ export class CursorExecutor extends BaseExecutor {
     const messages = body.messages || [];
     const tools = body.tools || [];
     const reasoningEffort = body.reasoning_effort || null;
-    const maxMode = true;
 
-    log?.debug?.("CURSOR", `ConnectRPC request: model=${model}, tools=${tools.length}, msgs=${messages.length}`);
+    // Detect .max suffix: cu/claude-4.5-sonnet.max → maxMode=true, model="claude-4.5-sonnet"
+    const maxMode = model.endsWith('.max');
+    const cleanModel = maxMode ? model.slice(0, -'.max'.length) : model;
+
+    log?.debug?.("CURSOR", `ConnectRPC request: model=${cleanModel}, maxMode=${maxMode}, tools=${tools.length}, msgs=${messages.length}`);
 
     try {
       const result = await makeConnectRequest(
-        this.config, messages, model, tools, credentials,
+        this.config, messages, cleanModel, tools, credentials,
         { reasoningEffort, maxMode, signal }
       );
 
