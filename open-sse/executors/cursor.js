@@ -11,6 +11,18 @@ import { FORMATS } from "../translator/formats.js";
 const CURSOR_DEBUG = process.env.CURSOR_DEBUG === "1";
 const debugLog = (...args) => CURSOR_DEBUG && console.log(...args);
 
+/**
+ * Detect rate limit / resource exhaustion from error strings.
+ * ConnectRPC errors arrive as "[resource_exhausted] ..."
+ * Cursor's ErrorDetails may include "rate limit" / "quota" keywords.
+ * Preserves 9router's accountFallback behavior (429 → exponential backoff).
+ */
+function isRateLimitError(errorStr) {
+  if (!errorStr) return false;
+  const lower = errorStr.toLowerCase();
+  return lower.includes('resource_exhausted') || lower.includes('rate_limit') || lower.includes('rate limit');
+}
+
 export class CursorExecutor extends BaseExecutor {
   constructor() {
     super("cursor", PROVIDERS.cursor);
@@ -53,16 +65,18 @@ export class CursorExecutor extends BaseExecutor {
 
       if (result.error) {
         const isAuth = result.error.includes('[16]') || result.error.includes('unauthenticated');
+        const isRateLimit = isRateLimitError(result.error);
         log?.warn?.("CURSOR", `ConnectRPC error: ${result.error}`);
+
+        const status = isAuth ? 401 : isRateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.SERVER_ERROR;
+        const type = isAuth ? "authentication_error" : isRateLimit ? "rate_limit_error" : "api_error";
+        const code = isAuth ? "unauthorized" : isRateLimit ? "rate_limited" : "";
+
         return {
           response: new Response(JSON.stringify({
-            error: {
-              message: result.error,
-              type: isAuth ? "authentication_error" : "api_error",
-              code: isAuth ? "unauthorized" : ""
-            }
+            error: { message: result.error, type, code }
           }), {
-            status: isAuth ? 401 : HTTP_STATUS.SERVER_ERROR,
+            status,
             headers: { "Content-Type": "application/json" }
           }),
           url, headers, transformedBody: body
@@ -100,9 +114,17 @@ export class CursorExecutor extends BaseExecutor {
     for (const frame of frames) {
       if (frame.error) {
         if (!totalContent && toolCallsMap.size === 0) {
+          const rateLimit = isRateLimitError(frame.error);
           return new Response(JSON.stringify({
-            error: { message: frame.error, type: "api_error", code: "" }
-          }), { status: HTTP_STATUS.SERVER_ERROR, headers: { "Content-Type": "application/json" } });
+            error: {
+              message: frame.error,
+              type: rateLimit ? "rate_limit_error" : "api_error",
+              code: rateLimit ? "rate_limited" : ""
+            }
+          }), {
+            status: rateLimit ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.SERVER_ERROR,
+            headers: { "Content-Type": "application/json" }
+          });
         }
         break;
       }
@@ -170,7 +192,8 @@ export class CursorExecutor extends BaseExecutor {
     for (const frame of frames) {
       if (frame.error) {
         if (chunks.length === 0 && totalContent === "" && toolCallsMap.size === 0) {
-          return errorResponse(HTTP_STATUS.SERVER_ERROR, frame.error);
+          const status = isRateLimitError(frame.error) ? HTTP_STATUS.RATE_LIMITED : HTTP_STATUS.SERVER_ERROR;
+          return errorResponse(status, frame.error);
         }
         break;
       }
