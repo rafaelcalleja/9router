@@ -400,6 +400,93 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
 }
 
 /**
+ * Streaming variant of makeConnectRequest.
+ * Yields Frame objects as they arrive from the ConnectRPC stream.
+ * Use for SSE streaming — the consumer can emit SSE chunks immediately.
+ *
+ * @param {Object} config
+ * @param {Array} messages
+ * @param {string} modelName
+ * @param {Array} tools
+ * @param {Object} credentials
+ * @param {Object} opts - {reasoningEffort, maxMode, signal}
+ * @yields {Object} Frame - { text, thinking, serverBubbleId, usageUuid, toolCall, error }
+ */
+export async function* streamConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
+  const baseUrl = config.baseUrl || config;
+  debugLog(`[CONNECT] streamConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
+  const transport = getTransport(baseUrl, credentials, config.headers);
+  const client = createClient(ChatService, transport);
+  const { request } = buildConnectRequest(
+    messages, modelName, tools, opts.reasoningEffort, opts.maxMode
+  );
+
+  let closeGenerator;
+  async function* requestStream() {
+    yield request;
+    await new Promise(r => { closeGenerator = r; });
+  }
+
+  try {
+    const stream = client.streamUnifiedChatWithTools(requestStream());
+    let frameCount = 0;
+    let hasToolCalls = false;
+
+    for await (const response of stream) {
+      frameCount++;
+      debugLog(`[CONNECT-STREAM] Frame #${frameCount}: text=${(response.response?.text || '').length}chars, toolCall=${!!response.toolCall?.toolCallId}`);
+
+      const text = response.response?.text || "";
+      const thinking = response.response?.thinking;
+
+      const frame = {
+        text: text || null,
+        thinking: thinking ? { text: thinking.text || "", signature: thinking.signature || "" } : null,
+        serverBubbleId: response.response?.serverBubbleId || null,
+        usageUuid: response.response?.usageUuid || null,
+        toolCall: null,
+        error: null,
+      };
+
+      // Extract tool call
+      if (response.toolCall?.toolCallId) {
+        const tc = response.toolCall;
+        const mcpToolName = tc.mcpParams?.tools?.[0]?.name || tc.name || "";
+        const isLast = tc.isLastMessage || false;
+
+        frame.toolCall = {
+          id: tc.toolCallId,
+          name: mcpToolName,
+          rawArgs: tc.rawArgs || "",
+          mcpParams: tc.mcpParams,
+          modelCallId: tc.modelCallId || "",
+          isPartial: !isLast && !tc.rawArgs,
+          isLast,
+          toolIndex: tc.toolIndex || 0,
+        };
+
+        hasToolCalls = true;
+
+        // Complete tool call — yield and stop
+        if (isLast || tc.rawArgs) {
+          debugLog(`[CONNECT-STREAM] Got complete tool_call (isLast=${isLast}), ending stream`);
+          yield frame;
+          return;
+        }
+      }
+
+      yield frame;
+    }
+  } catch (err) {
+    const errorInfo = extractErrorInfo(err);
+    debugLog(`[CONNECT-STREAM] Error: ${errorInfo.message}`);
+    yield { text: null, thinking: null, serverBubbleId: null, usageUuid: null, toolCall: null, error: errorInfo };
+  } finally {
+    closeGenerator?.();
+  }
+}
+
+/**
  * Make a ConnectRPC bidi request that supports sending tool results back.
  * The onToolCall callback is called for each tool call, and its return value
  * is sent back as a tool result.

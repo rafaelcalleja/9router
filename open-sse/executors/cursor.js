@@ -3,7 +3,7 @@ import { PROVIDERS } from "../config/providers.js";
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
 import { errorResponse } from "../utils/error.js";
 import { buildCursorHeaders } from "../utils/cursorChecksum.js";
-import { makeConnectRequest } from "../utils/cursorConnect.js";
+import { makeConnectRequest, streamConnectRequest } from "../utils/cursorConnect.js";
 import { estimateUsage } from "../utils/usageTracking.js";
 import { FORMATS } from "../translator/formats.js";
 
@@ -61,18 +61,28 @@ export class CursorExecutor extends BaseExecutor {
     log?.debug?.("CURSOR", `ConnectRPC request: model=${cleanModel}, maxMode=${maxMode}, tools=${tools.length}, msgs=${messages.length}`);
 
     try {
+      if (stream !== false) {
+        // Streaming path — yields SSE chunks progressively
+        const frameGenerator = streamConnectRequest(
+          this.config, messages, cleanModel, tools, credentials,
+          { reasoningEffort, maxMode, signal }
+        );
+        const transformedResponse = this.transformFramesToSSEStream(frameGenerator, model, body);
+        return { response: transformedResponse, url, headers, transformedBody: body };
+      }
+
+      // Non-streaming path — buffer all frames, return JSON
       const result = await makeConnectRequest(
         this.config, messages, cleanModel, tools, credentials,
         { reasoningEffort, maxMode, signal }
       );
 
       if (result.error) {
-        const err = result.error; // { message, code, errorDetails }
+        const err = result.error;
         const isAuth = err.message.includes('[16]') || err.message.includes('unauthenticated');
         const isRateLimit = isRateLimitError(err.message);
         log?.warn?.("CURSOR", `ConnectRPC error: ${err.message}`);
 
-        // Use ErrorDetails for richer error info when available (matches old createErrorResponse)
         const errorMsg = err.errorDetails?.title
           || err.errorDetails?.detail
           || err.message
@@ -95,20 +105,17 @@ export class CursorExecutor extends BaseExecutor {
         };
       }
 
-      const transformedResponse = stream !== false
-        ? this.transformFramesToSSE(result.frames, model, body)
-        : this.transformFramesToJSON(result.frames, model, body);
-
+      const transformedResponse = this.transformFramesToJSON(result.frames, model, body);
       return { response: transformedResponse, url, headers, transformedBody: body };
     } catch (error) {
       log?.error?.("CURSOR", `ConnectRPC exception: ${error.message}`);
-      const errorResponse = new Response(JSON.stringify({
+      const errorResp = new Response(JSON.stringify({
         error: { message: error.message, type: "connection_error", code: "" }
       }), {
         status: HTTP_STATUS.SERVER_ERROR,
         headers: { "Content-Type": "application/json" }
       });
-      return { response: errorResponse, url, headers, transformedBody: body };
+      return { response: errorResp, url, headers, transformedBody: body };
     }
   }
 
@@ -295,6 +302,188 @@ export class CursorExecutor extends BaseExecutor {
     debugLog(`[CURSOR] SSE: ${chunks.length} chunks, finish_reason=${toolCalls.length > 0 ? "tool_calls" : "stop"}, text=${totalContent.length}chars, toolCalls=${toolCalls.length}`);
 
     return new Response(chunks.join(""), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
+    });
+  }
+
+  /**
+   * Transform ConnectRPC frames to SSE stream (true streaming).
+   * Consumes an async generator and returns a Response with a ReadableStream body.
+   * @param {AsyncGenerator} frameGenerator - yields Frame objects
+   * @param {string} model
+   * @param {Object} body - original request body (for usage estimation)
+   * @returns {Response}
+   */
+  transformFramesToSSEStream(frameGenerator, model, body) {
+    const responseId = `chatcmpl-cursor-${Date.now()}`;
+    const created = Math.floor(Date.now() / 1000);
+    const encoder = new TextEncoder();
+
+    // State for SSE conversion
+    const state = {
+      totalContent: "",
+      chunkCount: 0,
+      toolCalls: [],
+      toolCallsMap: new Map(),
+      finalizedIds: new Set(),
+      emittedToolCallIds: new Set(),
+      finishEmitted: false,
+    };
+
+    // Source stream: pull frames from the async generator one at a time
+    const iterator = frameGenerator[Symbol.asyncIterator]();
+    const sourceStream = new ReadableStream({
+      async pull(controller) {
+        try {
+          const { done, value } = await iterator.next();
+          if (done) {
+            controller.close();
+            return;
+          }
+          // Serialize frame as JSON line for the TransformStream
+          controller.enqueue(encoder.encode(JSON.stringify(value) + "\n"));
+        } catch (err) {
+          controller.close();
+        }
+      }
+    });
+
+    // TransformStream: convert serialized frame objects → SSE text chunks
+    const sseTransform = new TransformStream({
+      transform(chunk, controller) {
+        const text = new TextDecoder().decode(chunk);
+        const lines = text.split("\n").filter(l => l.trim());
+
+        for (const line of lines) {
+          let frame;
+          try {
+            frame = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          // Error frame
+          if (frame.error) {
+            if (state.chunkCount === 0 && state.totalContent === "" && state.toolCallsMap.size === 0) {
+              const errMsg = frame.error.errorDetails?.title
+                || frame.error.errorDetails?.detail
+                || frame.error.message
+                || "API Error";
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                error: { message: errMsg, type: "api_error", code: "" }
+              })}\n\n`));
+            }
+            state.finishEmitted = true;
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            return;
+          }
+
+          // Tool call frame
+          if (frame.toolCall) {
+            const tc = frame.toolCall;
+
+            if (state.chunkCount === 0) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                id: responseId, object: "chat.completion.chunk", created, model,
+                choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
+              })}\n\n`));
+              state.chunkCount++;
+            }
+
+            if (state.toolCallsMap.has(tc.id)) {
+              const existing = state.toolCallsMap.get(tc.id);
+              existing.function.arguments += tc.rawArgs || "";
+              existing.isLast = tc.isLast;
+              if (tc.rawArgs) {
+                state.emittedToolCallIds.add(tc.id);
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  id: responseId, object: "chat.completion.chunk", created, model,
+                  choices: [{ index: 0, delta: { tool_calls: [{
+                    index: existing.index, id: tc.id, type: "function",
+                    function: { name: tc.name, arguments: tc.rawArgs }
+                  }] }, finish_reason: null }]
+                })}\n\n`));
+                state.chunkCount++;
+              }
+            } else {
+              const toolCallIndex = state.toolCalls.length;
+              state.finalizedIds.add(tc.id);
+              state.toolCalls.push({ ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
+              state.toolCallsMap.set(tc.id, { ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
+              state.emittedToolCallIds.add(tc.id);
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                id: responseId, object: "chat.completion.chunk", created, model,
+                choices: [{ index: 0, delta: { tool_calls: [{
+                  index: toolCallIndex, id: tc.id, type: "function",
+                  function: { name: tc.name, arguments: tc.rawArgs || "" }
+                }] }, finish_reason: null }]
+              })}\n\n`));
+              state.chunkCount++;
+            }
+          }
+
+          // Text frame
+          if (frame.text) {
+            state.totalContent += frame.text;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              id: responseId, object: "chat.completion.chunk", created, model,
+              choices: [{ index: 0,
+                delta: state.chunkCount === 0 && state.toolCalls.length === 0
+                  ? { role: "assistant", content: frame.text }
+                  : { content: frame.text },
+                finish_reason: null }]
+            })}\n\n`));
+            state.chunkCount++;
+          }
+        }
+      },
+
+      flush(controller) {
+        if (state.finishEmitted) return;
+
+        // Finalize remaining tool calls
+        for (const [id, tc] of state.toolCallsMap.entries()) {
+          if (!state.finalizedIds.has(id)) {
+            const idx = state.toolCalls.length;
+            state.toolCalls.push({ id: tc.id, type: "function", index: idx, function: tc.function });
+            if (!state.emittedToolCallIds.has(tc.id)) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                id: responseId, object: "chat.completion.chunk", created, model,
+                choices: [{ index: 0, delta: { tool_calls: [{
+                  index: idx, id: tc.id, type: "function", function: tc.function
+                }] }, finish_reason: null }]
+              })}\n\n`));
+            }
+          }
+        }
+
+        // Empty response fallback
+        if (state.chunkCount === 0 && state.toolCalls.length === 0) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            id: responseId, object: "chat.completion.chunk", created, model,
+            choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
+          })}\n\n`));
+        }
+
+        // Finish chunk
+        const usage = estimateUsage(body, state.totalContent.length, FORMATS.OPENAI);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+          id: responseId, object: "chat.completion.chunk", created, model,
+          choices: [{ index: 0, delta: {}, finish_reason: state.toolCalls.length > 0 ? "tool_calls" : "stop" }],
+          usage
+        })}\n\n`));
+
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+
+        debugLog(`[CURSOR] SSE stream: ${state.chunkCount} chunks, finish_reason=${state.toolCalls.length > 0 ? "tool_calls" : "stop"}, text=${state.totalContent.length}chars`);
+      }
+    });
+
+    // Pipe source through transform (same pattern as Kiro)
+    const transformedStream = sourceStream.pipeThrough(sseTransform);
+
+    return new Response(transformedStream, {
       status: 200,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
     });
