@@ -128,7 +128,7 @@ export const PROVIDER_MODELS = {
     { id: "gpt-5.3-codex", name: "GPT 5.3 Codex" },
     // .max variants — virtual suffix stripped by executor, enables Cursor max mode
     { id: "default.max", name: "Auto (Max Mode)" },
-    { id: "claude-4.6-opus-max.max", name: "Claude 4.6 Opus Max (Max Mode)" },
+    { id: "claude-4.6-opus-high-thinking.max", name: "Claude 4.6 Opus High Thinking (Max Mode)" },
     { id: "claude-4.6-sonnet-medium-thinking.max", name: "Claude 4.6 Sonnet Medium Thinking (Max Mode)" },
   ],
   kmc: [  // Kimi Coding
