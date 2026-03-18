@@ -65,7 +65,7 @@ export class CursorExecutor extends BaseExecutor {
         // Streaming path — yields SSE chunks progressively
         const frameGenerator = streamConnectRequest(
           this.config, messages, cleanModel, tools, credentials,
-          { reasoningEffort, maxMode, signal, proxyOptions }
+          { reasoningEffort, maxMode, signal, proxyOptions, headers }
         );
         const transformedResponse = this.transformFramesToSSEStream(frameGenerator, model, body);
         return { response: transformedResponse, url, headers, transformedBody: body };
@@ -74,7 +74,7 @@ export class CursorExecutor extends BaseExecutor {
       // Non-streaming path — buffer all frames, return JSON
       const result = await makeConnectRequest(
         this.config, messages, cleanModel, tools, credentials,
-        { reasoningEffort, maxMode, signal, proxyOptions }
+        { reasoningEffort, maxMode, signal, proxyOptions, headers }
       );
 
       if (result.error) {

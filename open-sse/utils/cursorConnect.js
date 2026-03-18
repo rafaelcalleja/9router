@@ -18,7 +18,6 @@ import {
   ErrorDetailsSchema,
 } from "../gen/cursor_pb.js";
 
-import { buildCursorHeaders } from "./cursorChecksum.js";
 import { proxyAwareFetch } from "./proxyFetch.js";
 
 // ==================== CONSTANTS ====================
@@ -68,21 +67,16 @@ function extractErrorInfo(err) {
 
 /**
  * Create a ConnectRPC transport with auth interceptor.
- * Cached per credentials to reuse HTTP/2 connections.
+ * Fresh transport per request — accepts pre-built headers from the executor
+ * so the same headers are used for both sending and reporting.
+ * Matches the stateless pattern used by all other providers.
+ *
+ * @param {string} baseUrl
+ * @param {Object} headers - Pre-built headers from executor's buildHeaders()
+ * @param {Object|null} proxyOptions
  */
-const transportCache = new Map();
-
-function getTransport(baseUrl, credentials, configHeaders = {}, proxyOptions = null) {
+function getTransport(baseUrl, headers = {}, proxyOptions = null) {
   const useProxy = proxyOptions?.connectionProxyEnabled === true || proxyOptions?.enabled === true;
-  const cacheKey = `${baseUrl}:${credentials.accessToken?.slice(-8)}:${useProxy ? "proxy" : "direct"}`;
-  if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
-
-  const accessToken = credentials.accessToken;
-  const machineId = credentials.providerSpecificData?.machineId;
-  const ghostMode = credentials.providerSpecificData?.ghostMode !== false;
-  const headers = buildCursorHeaders(accessToken, machineId, ghostMode, {
-    headers: configHeaders
-  });
 
   // Filter headers for ConnectRPC (skip pseudo-headers and te)
   const connectHeaders = {};
@@ -100,7 +94,7 @@ function getTransport(baseUrl, credentials, configHeaders = {}, proxyOptions = n
     },
   ];
 
-  const transport = useProxy
+  return useProxy
     ? createGrpcWebTransport({
         baseUrl,
         httpVersion: "1.1",
@@ -112,9 +106,6 @@ function getTransport(baseUrl, credentials, configHeaders = {}, proxyOptions = n
         httpVersion: "2",
         interceptors,
       });
-
-  transportCache.set(cacheKey, transport);
-  return transport;
 }
 
 // ==================== REQUEST BUILDER ====================
@@ -316,7 +307,7 @@ function buildToolResultRequest(tr) {
 export async function makeConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
   const baseUrl = config.baseUrl || config;
   debugLog(`[CONNECT] makeConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
-  const transport = getTransport(baseUrl, credentials, config.headers, opts.proxyOptions);
+  const transport = getTransport(baseUrl, opts.headers || {}, opts.proxyOptions);
   const client = createClient(ChatService, transport);
   const { request } = buildConnectRequest(
     messages, modelName, tools, opts.reasoningEffort, opts.maxMode
@@ -426,7 +417,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
 export async function* streamConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
   const baseUrl = config.baseUrl || config;
   debugLog(`[CONNECT] streamConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
-  const transport = getTransport(baseUrl, credentials, config.headers, opts.proxyOptions);
+  const transport = getTransport(baseUrl, opts.headers || {}, opts.proxyOptions);
   const client = createClient(ChatService, transport);
   const { request } = buildConnectRequest(
     messages, modelName, tools, opts.reasoningEffort, opts.maxMode
@@ -512,7 +503,7 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
  * @returns {Promise<CursorResponse>}
  */
 export async function makeConnectBidiRequest(baseUrl, messages, modelName, tools, credentials, onToolCall, opts = {}) {
-  const transport = getTransport(baseUrl, credentials);
+  const transport = getTransport(baseUrl, opts.headers || {}, opts.proxyOptions);
   const client = createClient(ChatService, transport);
   const { request } = buildConnectRequest(
     messages, modelName, tools, opts.reasoningEffort, opts.maxMode
