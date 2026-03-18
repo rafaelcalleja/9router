@@ -338,7 +338,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
   }
 
   try {
-    const stream = client.streamUnifiedChatWithTools(requestStream());
+    const stream = client.streamUnifiedChatWithTools(requestStream(), { signal: opts.signal });
     let frameCount = 0;
 
     for await (const response of stream) {
@@ -439,7 +439,7 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
   }
 
   try {
-    const stream = client.streamUnifiedChatWithTools(requestStream());
+    const stream = client.streamUnifiedChatWithTools(requestStream(), { signal: opts.signal });
     let frameCount = 0;
     let hasToolCalls = false;
 
@@ -550,7 +550,7 @@ export async function makeConnectBidiRequest(baseUrl, messages, modelName, tools
   }
 
   try {
-    const stream = client.streamUnifiedChatWithTools(requestStream());
+    const stream = client.streamUnifiedChatWithTools(requestStream(), { signal: opts.signal });
 
     for await (const response of stream) {
       const text = response.response?.text || "";
