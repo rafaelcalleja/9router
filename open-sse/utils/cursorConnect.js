@@ -6,7 +6,7 @@
  */
 
 import { createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-node";
+import { createConnectTransport, createGrpcWebTransport } from "@connectrpc/connect-node";
 import { create } from "@bufbuild/protobuf";
 import crypto from "crypto";
 
@@ -19,6 +19,7 @@ import {
 } from "../gen/cursor_pb.js";
 
 import { buildCursorHeaders } from "./cursorChecksum.js";
+import { proxyAwareFetch } from "./proxyFetch.js";
 
 // ==================== CONSTANTS ====================
 
@@ -71,8 +72,9 @@ function extractErrorInfo(err) {
  */
 const transportCache = new Map();
 
-function getTransport(baseUrl, credentials, configHeaders = {}) {
-  const cacheKey = `${baseUrl}:${credentials.accessToken?.slice(-8)}`;
+function getTransport(baseUrl, credentials, configHeaders = {}, proxyOptions = null) {
+  const useProxy = proxyOptions?.connectionProxyEnabled === true || proxyOptions?.enabled === true;
+  const cacheKey = `${baseUrl}:${credentials.accessToken?.slice(-8)}:${useProxy ? "proxy" : "direct"}`;
   if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
 
   const accessToken = credentials.accessToken;
@@ -89,18 +91,27 @@ function getTransport(baseUrl, credentials, configHeaders = {}) {
     connectHeaders[key] = String(value);
   }
 
-  const transport = createConnectTransport({
-    baseUrl,
-    httpVersion: "2",
-    interceptors: [
-      (next) => async (req) => {
-        for (const [key, value] of Object.entries(connectHeaders)) {
-          req.header.set(key, value);
-        }
-        return next(req);
-      },
-    ],
-  });
+  const interceptors = [
+    (next) => async (req) => {
+      for (const [key, value] of Object.entries(connectHeaders)) {
+        req.header.set(key, value);
+      }
+      return next(req);
+    },
+  ];
+
+  const transport = useProxy
+    ? createGrpcWebTransport({
+        baseUrl,
+        httpVersion: "1.1",
+        fetch: (url, init) => proxyAwareFetch(url, init, proxyOptions),
+        interceptors,
+      })
+    : createConnectTransport({
+        baseUrl,
+        httpVersion: "2",
+        interceptors,
+      });
 
   transportCache.set(cacheKey, transport);
   return transport;
@@ -305,7 +316,7 @@ function buildToolResultRequest(tr) {
 export async function makeConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
   const baseUrl = config.baseUrl || config;
   debugLog(`[CONNECT] makeConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
-  const transport = getTransport(baseUrl, credentials, config.headers);
+  const transport = getTransport(baseUrl, credentials, config.headers, opts.proxyOptions);
   const client = createClient(ChatService, transport);
   const { request } = buildConnectRequest(
     messages, modelName, tools, opts.reasoningEffort, opts.maxMode
@@ -415,7 +426,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
 export async function* streamConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
   const baseUrl = config.baseUrl || config;
   debugLog(`[CONNECT] streamConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
-  const transport = getTransport(baseUrl, credentials, config.headers);
+  const transport = getTransport(baseUrl, credentials, config.headers, opts.proxyOptions);
   const client = createClient(ChatService, transport);
   const { request } = buildConnectRequest(
     messages, modelName, tools, opts.reasoningEffort, opts.maxMode
