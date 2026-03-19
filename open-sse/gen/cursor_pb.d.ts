@@ -512,45 +512,87 @@ export declare type ModelDetails = Message<"aiserver.v1.ModelDetails"> & {
 export declare const ModelDetailsSchema: GenMessage<ModelDetails>;
 
 /**
- * CurrentFileInfo — field 15 (used as CursorSetting by encoder)
+ * @generated from message aiserver.v1.CursorPosition
+ */
+export declare type CursorPosition = Message<"aiserver.v1.CursorPosition"> & {
+  /**
+   * @generated from field: int32 line = 1;
+   */
+  line: number;
+
+  /**
+   * @generated from field: int32 column = 2;
+   */
+  column: number;
+};
+
+/**
+ * Describes the message aiserver.v1.CursorPosition.
+ * Use `create(CursorPositionSchema)` to create a new message.
+ */
+export declare const CursorPositionSchema: GenMessage<CursorPosition>;
+
+/**
+ * @generated from message aiserver.v1.CursorRange
+ */
+export declare type CursorRange = Message<"aiserver.v1.CursorRange"> & {
+  /**
+   * @generated from field: optional aiserver.v1.CursorPosition start_position = 1;
+   */
+  startPosition?: CursorPosition;
+
+  /**
+   * @generated from field: optional aiserver.v1.CursorPosition end_position = 2;
+   */
+  endPosition?: CursorPosition;
+};
+
+/**
+ * Describes the message aiserver.v1.CursorRange.
+ * Use `create(CursorRangeSchema)` to create a new message.
+ */
+export declare const CursorRangeSchema: GenMessage<CursorRange>;
+
+/**
+ * CurrentFileInfo — field 15
  *
  * @generated from message aiserver.v1.CurrentFileInfo
  */
 export declare type CurrentFileInfo = Message<"aiserver.v1.CurrentFileInfo"> & {
   /**
-   * SETTING_PATH
-   *
    * @generated from field: optional string path = 1;
    */
   path?: string;
 
   /**
-   * SETTING_UNKNOWN_3
-   *
-   * @generated from field: optional bytes unknown3 = 3;
+   * @generated from field: optional string contents = 2;
    */
-  unknown3?: Uint8Array;
+  contents?: string;
 
   /**
-   * SETTING_UNKNOWN_6
-   *
-   * @generated from field: optional aiserver.v1.CurrentFileInfoSub6 unknown6 = 6;
+   * @generated from field: optional aiserver.v1.CursorPosition cursor_position = 3;
    */
-  unknown6?: CurrentFileInfoSub6;
+  cursorPosition?: CursorPosition;
 
   /**
-   * SETTING_UNKNOWN_8
-   *
-   * @generated from field: optional bool unknown8 = 8;
+   * @generated from field: optional string language_id = 5;
    */
-  unknown8?: boolean;
+  languageId?: string;
 
   /**
-   * SETTING_UNKNOWN_9
-   *
-   * @generated from field: optional bool unknown9 = 9;
+   * @generated from field: optional aiserver.v1.CursorRange selection = 6;
    */
-  unknown9?: boolean;
+  selection?: CursorRange;
+
+  /**
+   * @generated from field: optional int32 total_number_of_lines = 8;
+   */
+  totalNumberOfLines?: number;
+
+  /**
+   * @generated from field: optional int32 contents_start_at_line = 9;
+   */
+  contentsStartAtLine?: number;
 };
 
 /**
@@ -558,27 +600,6 @@ export declare type CurrentFileInfo = Message<"aiserver.v1.CurrentFileInfo"> & {
  * Use `create(CurrentFileInfoSchema)` to create a new message.
  */
 export declare const CurrentFileInfoSchema: GenMessage<CurrentFileInfo>;
-
-/**
- * @generated from message aiserver.v1.CurrentFileInfoSub6
- */
-export declare type CurrentFileInfoSub6 = Message<"aiserver.v1.CurrentFileInfoSub6"> & {
-  /**
-   * @generated from field: optional bytes field1 = 1;
-   */
-  field1?: Uint8Array;
-
-  /**
-   * @generated from field: optional bytes field2 = 2;
-   */
-  field2?: Uint8Array;
-};
-
-/**
- * Describes the message aiserver.v1.CurrentFileInfoSub6.
- * Use `create(CurrentFileInfoSub6Schema)` to create a new message.
- */
-export declare const CurrentFileInfoSub6Schema: GenMessage<CurrentFileInfoSub6>;
 
 /**
  * EnvironmentInfo — field 26

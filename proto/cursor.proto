@@ -188,18 +188,25 @@ message ModelDetails {
   optional bool max_mode = 8;
 }
 
-// CurrentFileInfo — field 15 (used as CursorSetting by encoder)
-message CurrentFileInfo {
-  optional string path = 1;           // SETTING_PATH
-  optional bytes unknown3 = 3;        // SETTING_UNKNOWN_3
-  optional CurrentFileInfoSub6 unknown6 = 6;  // SETTING_UNKNOWN_6
-  optional bool unknown8 = 8;         // SETTING_UNKNOWN_8
-  optional bool unknown9 = 9;         // SETTING_UNKNOWN_9
+message CursorPosition {
+  int32 line = 1;
+  int32 column = 2;
 }
 
-message CurrentFileInfoSub6 {
-  optional bytes field1 = 1;
-  optional bytes field2 = 2;
+message CursorRange {
+  optional CursorPosition start_position = 1;
+  optional CursorPosition end_position = 2;
+}
+
+// CurrentFileInfo — field 15
+message CurrentFileInfo {
+  optional string path = 1;
+  optional string contents = 2;
+  optional CursorPosition cursor_position = 3;
+  optional string language_id = 5;
+  optional CursorRange selection = 6;
+  optional int32 total_number_of_lines = 8;
+  optional int32 contents_start_at_line = 9;
 }
 
 // EnvironmentInfo — field 26

@@ -231,7 +231,15 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
       modelDetails: { modelName, maxMode },
       useWeb: "",
       shouldCache: true,
-      currentFile: { path: "cursor\\aisettings", unknown8: true, unknown9: true },
+      currentFile: {
+        contentsStartAtLine: 1,
+        cursorPosition: { line: 0, column: 0 },
+        totalNumberOfLines: 1,
+        selection: {
+          startPosition: { line: 0, column: 0 },
+          endPosition: { line: 0, column: 0 },
+        },
+      },
       useNewCompressionScheme: true,
       isChat: !isAgentic,
       conversationId: crypto.randomUUID(),
