@@ -372,7 +372,9 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
 
         toolCalls.push(frame.toolCall);
 
-        // Got a complete tool call — close the request stream and stop reading
+        // Got a complete tool call — close the request stream and stop reading.
+        // Cursor's bidi stream expects tool results back; since 9router is a proxy
+        // (not a bidi client), we break here and let the caller re-send with results.
         if (isLast || tc.rawArgs) {
           debugLog(`[CONNECT] Got complete tool_call (isLast=${isLast}), closing stream`);
           frames.push(frame);
@@ -391,9 +393,11 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
     closeGenerator?.();
   }
 
-  // Abort error after break is expected when we got tool_calls
+  // Abort error after break is expected when we got tool_calls —
+  // breaking the for-await abandons the ConnectRPC stream mid-read,
+  // which causes a cancel/abort error. This is expected, not a real failure.
   if (error && toolCalls.length > 0 && frames.length > 0) {
-    debugLog(`[CONNECT] Clearing abort error — got ${toolCalls.length} tool_calls with ${frames.length} frames`);
+    debugLog(`[CONNECT] Clearing expected abort error — got ${toolCalls.length} tool_calls with ${frames.length} frames`);
     error = null;
   }
 
@@ -469,7 +473,9 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
 
         hasToolCalls = true;
 
-        // Complete tool call — yield and stop
+        // Complete tool call — yield and stop.
+        // Cursor's bidi stream expects tool results back; 9router proxies
+        // the tool call to the caller who re-sends with results.
         if (isLast || tc.rawArgs) {
           debugLog(`[CONNECT-STREAM] Got complete tool_call (isLast=${isLast}), ending stream`);
           yield frame;
@@ -488,122 +494,4 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
   }
 }
 
-/**
- * Make a ConnectRPC bidi request that supports sending tool results back.
- * The onToolCall callback is called for each tool call, and its return value
- * is sent back as a tool result.
- *
- * @param {string} baseUrl
- * @param {Array} messages
- * @param {string} modelName
- * @param {Array} tools
- * @param {Object} credentials
- * @param {Function} onToolCall - async (toolCall) => { result: string }
- * @param {Object} opts
- * @returns {Promise<CursorResponse>}
- */
-export async function makeConnectBidiRequest(baseUrl, messages, modelName, tools, credentials, onToolCall, opts = {}) {
-  const transport = getTransport(baseUrl, opts.headers || {}, opts.proxyOptions);
-  const client = createClient(ChatService, transport);
-  const { request } = buildConnectRequest(
-    messages, modelName, tools, opts.reasoningEffort, opts.maxMode
-  );
-
-  const frames = [];
-  let textTotal = "";
-  let thinkingText = "";
-  const toolCalls = [];
-  let error = null;
-
-  const pendingResults = [];
-  let resolveWait = null;
-  let streamDone = false;
-
-  function pushResult(msg) {
-    pendingResults.push(msg);
-    if (resolveWait) { resolveWait(); resolveWait = null; }
-  }
-
-  function markDone() {
-    streamDone = true;
-    if (resolveWait) { resolveWait(); resolveWait = null; }
-  }
-
-  async function* requestStream() {
-    yield request;
-    while (!streamDone) {
-      if (pendingResults.length > 0) {
-        yield pendingResults.shift();
-      } else {
-        await new Promise(r => { resolveWait = r; });
-      }
-    }
-  }
-
-  try {
-    const stream = client.streamUnifiedChatWithTools(requestStream(), { signal: opts.signal });
-
-    for await (const response of stream) {
-      const text = response.response?.text || "";
-      const thinking = response.response?.thinking;
-
-      const frame = {
-        text: text || null,
-        thinking: thinking ? { text: thinking.text || "", signature: thinking.signature || "" } : null,
-        serverBubbleId: response.response?.serverBubbleId || null,
-        usageUuid: response.response?.usageUuid || null,
-        toolCall: null,
-        error: null,
-      };
-
-      if (text) textTotal += text;
-      if (thinking?.text) thinkingText += thinking.text;
-
-      if (response.toolCall?.toolCallId) {
-        const tc = response.toolCall;
-        const mcpToolName = tc.mcpParams?.tools?.[0]?.name || tc.name || "";
-
-        frame.toolCall = {
-          id: tc.toolCallId,
-          name: mcpToolName,
-          rawArgs: tc.rawArgs || "",
-          mcpParams: tc.mcpParams,
-          modelCallId: tc.modelCallId || "",
-          isPartial: false,
-          isLast: tc.isLastMessage || false,
-          toolIndex: tc.toolIndex || 0,
-        };
-
-        toolCalls.push(frame.toolCall);
-
-        // Call the tool handler and send result back
-        if (onToolCall && tc.rawArgs) {
-          try {
-            const result = await onToolCall(frame.toolCall);
-            const toolResultMsg = buildToolResultRequest({
-              tool_call_id: tc.toolCallId,
-              name: mcpToolName,
-              result: result?.result || "",
-              model_call_id: tc.modelCallId || "",
-            });
-            pushResult(toolResultMsg);
-          } catch (toolErr) {
-            console.error(`[CONNECT] Tool error: ${toolErr.message}`);
-          }
-        }
-      }
-
-      frames.push(frame);
-    }
-  } catch (err) {
-    const errorInfo = extractErrorInfo(err);
-    error = errorInfo;
-    console.error(`[CONNECT] Bidi error: ${errorInfo.message}`);
-  } finally {
-    markDone();
-  }
-
-  return { text: textTotal, toolCalls, thinkingText, frames, error };
-}
-
-export { buildConnectRequest, buildToolResultRequest, getTransport };
+export { buildConnectRequest, getTransport };
