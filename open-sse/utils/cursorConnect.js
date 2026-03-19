@@ -312,7 +312,7 @@ function buildToolResultRequest(tr) {
  * @param {Object} opts - {reasoningEffort, maxMode, signal, skipToolResultFrames}
  * @returns {Promise<CursorResponse>}
  */
-export async function makeConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
+export async function makeConnectRequest(config, messages, modelName, tools, opts = {}) {
   const baseUrl = config.baseUrl || config;
   debugLog(`[CONNECT] makeConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
   const transport = getTransport(baseUrl, opts.headers || {}, opts.proxyOptions);
@@ -426,7 +426,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, cre
  * @param {Object} opts - {reasoningEffort, maxMode, signal}
  * @yields {Object} Frame - { text, thinking, serverBubbleId, usageUuid, toolCall, error }
  */
-export async function* streamConnectRequest(config, messages, modelName, tools, credentials, opts = {}) {
+export async function* streamConnectRequest(config, messages, modelName, tools, opts = {}) {
   const baseUrl = config.baseUrl || config;
   debugLog(`[CONNECT] streamConnectRequest: model=${modelName}, tools=${tools?.length || 0}, msgs=${messages?.length || 0}`);
   const transport = getTransport(baseUrl, opts.headers || {}, opts.proxyOptions);
@@ -444,7 +444,6 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
   try {
     const stream = client.streamUnifiedChatWithTools(requestStream(), { signal: opts.signal });
     let frameCount = 0;
-    let hasToolCalls = false;
 
     for await (const response of stream) {
       frameCount++;
@@ -478,8 +477,6 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
           isLast,
           toolIndex: tc.toolIndex || 0,
         };
-
-        hasToolCalls = true;
 
         // Complete tool call — yield and stop.
         // Cursor's bidi stream expects tool results back; 9router proxies

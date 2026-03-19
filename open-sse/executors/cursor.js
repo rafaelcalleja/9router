@@ -64,7 +64,7 @@ export class CursorExecutor extends BaseExecutor {
       if (stream !== false) {
         // Streaming path — yields SSE chunks progressively
         const frameGenerator = streamConnectRequest(
-          this.config, messages, cleanModel, tools, credentials,
+          this.config, messages, cleanModel, tools,
           { reasoningEffort, maxMode, signal, proxyOptions, headers }
         );
         const transformedResponse = this.transformFramesToSSEStream(frameGenerator, model, body);
@@ -73,7 +73,7 @@ export class CursorExecutor extends BaseExecutor {
 
       // Non-streaming path — buffer all frames, return JSON
       const result = await makeConnectRequest(
-        this.config, messages, cleanModel, tools, credentials,
+        this.config, messages, cleanModel, tools,
         { reasoningEffort, maxMode, signal, proxyOptions, headers }
       );
 
@@ -191,119 +191,6 @@ export class CursorExecutor extends BaseExecutor {
     debugLog(`[CURSOR] JSON: finish_reason=${completion.choices[0].finish_reason}, text=${totalContent.length}chars, toolCalls=${toolCalls.length}`);
     return new Response(JSON.stringify(completion), {
       status: 200, headers: { "Content-Type": "application/json" }
-    });
-  }
-
-  /**
-   * Transform decoded ConnectRPC frames to SSE stream.
-   */
-  transformFramesToSSE(frames, model, body) {
-    const responseId = `chatcmpl-cursor-${Date.now()}`;
-    const created = Math.floor(Date.now() / 1000);
-    const chunks = [];
-    let totalContent = "";
-    const toolCalls = [];
-    const toolCallsMap = new Map();
-    const finalizedIds = new Set();
-    const emittedToolCallIds = new Set();
-
-    for (const frame of frames) {
-      if (frame.error) {
-        if (chunks.length === 0 && totalContent === "" && toolCallsMap.size === 0) {
-          return errorResponse(HTTP_STATUS.RATE_LIMITED, frame.error);
-        }
-        break;
-      }
-
-      if (frame.toolCall) {
-        const tc = frame.toolCall;
-
-        // Ensure role chunk exists
-        if (chunks.length === 0) {
-          chunks.push(`data: ${JSON.stringify({
-            id: responseId, object: "chat.completion.chunk", created, model,
-            choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
-          })}\n\n`);
-        }
-
-        if (toolCallsMap.has(tc.id)) {
-          const existing = toolCallsMap.get(tc.id);
-          existing.function.arguments += tc.rawArgs || "";
-          existing.isLast = tc.isLast;
-          if (tc.rawArgs) {
-            emittedToolCallIds.add(tc.id);
-            chunks.push(`data: ${JSON.stringify({
-              id: responseId, object: "chat.completion.chunk", created, model,
-              choices: [{ index: 0, delta: { tool_calls: [{
-                index: existing.index, id: tc.id, type: "function",
-                function: { name: tc.name, arguments: tc.rawArgs }
-              }] }, finish_reason: null }]
-            })}\n\n`);
-          }
-        } else {
-          const toolCallIndex = toolCalls.length;
-          finalizedIds.add(tc.id);
-          toolCalls.push({ ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
-          toolCallsMap.set(tc.id, { ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
-          emittedToolCallIds.add(tc.id);
-          chunks.push(`data: ${JSON.stringify({
-            id: responseId, object: "chat.completion.chunk", created, model,
-            choices: [{ index: 0, delta: { tool_calls: [{
-              index: toolCallIndex, id: tc.id, type: "function",
-              function: { name: tc.name, arguments: tc.rawArgs || "" }
-            }] }, finish_reason: null }]
-          })}\n\n`);
-        }
-      }
-
-      if (frame.text) {
-        totalContent += frame.text;
-        chunks.push(`data: ${JSON.stringify({
-          id: responseId, object: "chat.completion.chunk", created, model,
-          choices: [{ index: 0,
-            delta: chunks.length === 0 && toolCalls.length === 0
-              ? { role: "assistant", content: frame.text }
-              : { content: frame.text },
-            finish_reason: null }]
-        })}\n\n`);
-      }
-    }
-
-    // Finalize remaining tool calls
-    for (const [id, tc] of toolCallsMap.entries()) {
-      if (!finalizedIds.has(id)) {
-        const idx = toolCalls.length;
-        toolCalls.push({ id: tc.id, type: "function", index: idx, function: tc.function });
-        if (!emittedToolCallIds.has(tc.id)) {
-          chunks.push(`data: ${JSON.stringify({
-            id: responseId, object: "chat.completion.chunk", created, model,
-            choices: [{ index: 0, delta: { tool_calls: [{
-              index: idx, id: tc.id, type: "function", function: tc.function
-            }] }, finish_reason: null }]
-          })}\n\n`);
-        }
-      }
-    }
-
-    if (chunks.length === 0 && toolCalls.length === 0) {
-      chunks.push(`data: ${JSON.stringify({
-        id: responseId, object: "chat.completion.chunk", created, model,
-        choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
-      })}\n\n`);
-    }
-
-    const usage = estimateUsage(body, totalContent.length, FORMATS.OPENAI);
-    chunks.push(`data: ${JSON.stringify({
-      id: responseId, object: "chat.completion.chunk", created, model,
-      choices: [{ index: 0, delta: {}, finish_reason: toolCalls.length > 0 ? "tool_calls" : "stop" }],
-      usage
-    })}\n\n`);
-
-    debugLog(`[CURSOR] SSE: ${chunks.length} chunks, finish_reason=${toolCalls.length > 0 ? "tool_calls" : "stop"}, text=${totalContent.length}chars, toolCalls=${toolCalls.length}`);
-
-    return new Response(chunks.join(""), {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
     });
   }
 
