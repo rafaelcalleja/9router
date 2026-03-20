@@ -213,7 +213,6 @@ export class CursorExecutor extends BaseExecutor {
       chunkCount: 0,
       toolCalls: [],
       toolCallsMap: new Map(),
-      finalizedIds: new Set(),
       emittedToolCallIds: new Set(),
       finishEmitted: false,
     };
@@ -283,7 +282,6 @@ export class CursorExecutor extends BaseExecutor {
             }
           } else {
             const toolCallIndex = state.toolCalls.length;
-            state.finalizedIds.add(tc.id);
             state.toolCalls.push({ ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
             state.toolCallsMap.set(tc.id, { ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
             state.emittedToolCallIds.add(tc.id);
@@ -316,21 +314,7 @@ export class CursorExecutor extends BaseExecutor {
       flush(controller) {
         if (state.finishEmitted) return;
 
-        // Finalize remaining tool calls
-        for (const [id, tc] of state.toolCallsMap.entries()) {
-          if (!state.finalizedIds.has(id)) {
-            const idx = state.toolCalls.length;
-            state.toolCalls.push({ id: tc.id, type: "function", index: idx, function: tc.function });
-            if (!state.emittedToolCallIds.has(tc.id)) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                id: responseId, object: "chat.completion.chunk", created, model,
-                choices: [{ index: 0, delta: { tool_calls: [{
-                  index: idx, id: tc.id, type: "function", function: tc.function
-                }] }, finish_reason: null }]
-              })}\n\n`));
-            }
-          }
-        }
+
 
         // Empty response fallback
         if (state.chunkCount === 0 && state.toolCalls.length === 0) {
