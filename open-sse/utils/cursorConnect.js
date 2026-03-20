@@ -14,6 +14,9 @@ import {
   ChatService,
   StreamUnifiedChatRequestWithToolsSchema,
   ErrorDetailsSchema,
+  UnifiedMode,
+  ThinkingLevel,
+  ClientSideToolV2,
 } from "../gen/cursor_pb.js";
 
 import { proxyAwareFetch } from "./proxyFetch.js";
@@ -21,9 +24,8 @@ import { proxyAwareFetch } from "./proxyFetch.js";
 // ==================== CONSTANTS ====================
 
 const ROLE = { USER: 1, ASSISTANT: 2 };
-const UNIFIED_MODE = { CHAT: 1, AGENT: 2 };
-const THINKING_LEVEL = { UNSPECIFIED: 0, MEDIUM: 1, HIGH: 2 };
-const CLIENT_SIDE_TOOL_V2_MCP = 19;
+// chatModeEnum: 1=ask, 2=agent (raw int32 in proto, no enum)
+const CHAT_MODE = { ASK: 1, AGENT: 2 };
 
 // Env-gated debug logging (set CURSOR_CONNECT_DEBUG=1 to enable)
 const CURSOR_CONNECT_DEBUG = process.env.CURSOR_CONNECT_DEBUG === "1";
@@ -149,7 +151,7 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
           toolIndex: ti + 1,
           rawArgs: args,
           toolCall: {
-            tool: CLIENT_SIDE_TOOL_V2_MCP,
+            tool: ClientSideToolV2.MCP,
             toolCallId: tc.id || "",
             name: name,
             rawArgs: args,
@@ -168,13 +170,13 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
           toolIndex: tr.tool_index || 1,
           rawArgs: tr.raw_args || "{}",
           result: {
-            tool: CLIENT_SIDE_TOOL_V2_MCP,
+            tool: ClientSideToolV2.MCP,
             mcpResult: { selectedTool: tr.name || tr.tool_name || "", result: tr.result || tr.content || "" },
             toolCallId: tr.tool_call_id || "",
             modelCallId: tr.model_call_id || "",
           },
           toolCall: tr.tool_call ? {
-            tool: CLIENT_SIDE_TOOL_V2_MCP,
+            tool: ClientSideToolV2.MCP,
             toolCallId: tr.tool_call_id || "",
             name: tr.name || "",
             rawArgs: tr.raw_args || "{}",
@@ -187,7 +189,7 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
       text: content,
       role,
       messageId: msgId,
-      chatModeEnum: isAgentic ? 2 : 1,
+      chatModeEnum: isAgentic ? CHAT_MODE.AGENT : CHAT_MODE.ASK,
       toolResults,
     });
 
@@ -195,9 +197,9 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
   }
 
   // Map reasoning effort
-  let thinkingLevel = THINKING_LEVEL.UNSPECIFIED;
-  if (reasoningEffort === "medium") thinkingLevel = THINKING_LEVEL.MEDIUM;
-  else if (reasoningEffort === "high") thinkingLevel = THINKING_LEVEL.HIGH;
+  let thinkingLevel = ThinkingLevel.UNSPECIFIED;
+  if (reasoningEffort === "medium") thinkingLevel = ThinkingLevel.MEDIUM;
+  else if (reasoningEffort === "high") thinkingLevel = ThinkingLevel.HIGH;
 
   // Build MCP tools — handle both OpenAI format ({type:"function", function:{...}})
   // and flat format ({name, description, input_schema})
@@ -247,7 +249,7 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
       mcpTools,
       useFullInputsContext: false,
       unknown38: false,
-      unifiedMode: isAgentic ? UNIFIED_MODE.AGENT : UNIFIED_MODE.CHAT,
+      unifiedMode: isAgentic ? UnifiedMode.AGENT : UnifiedMode.NORMAL,
       toolsRequiringAcceptedReturn: "",
       shouldDisableTools: !isAgentic,
       thinkingLevel,
