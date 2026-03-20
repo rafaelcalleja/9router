@@ -13,8 +13,6 @@ import crypto from "crypto";
 import {
   ChatService,
   StreamUnifiedChatRequestWithToolsSchema,
-  ClientSideToolV2ResultSchema,
-  MCPResultSchema,
   ErrorDetailsSchema,
 } from "../gen/cursor_pb.js";
 
@@ -118,7 +116,7 @@ function getTransport(baseUrl, headers = {}, proxyOptions = null) {
  * @param {Array} tools - Tools [{name, description, input_schema, server_name}]
  * @param {string|null} reasoningEffort - "medium" | "high" | null
  * @param {boolean} maxMode - Enable max mode
- * @returns {{ request: object, toolResultRequests: object[] }}
+ * @returns {{ request: object }}
  */
 function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = null, maxMode = false) {
   const hasTools = tools?.length > 0;
@@ -127,7 +125,6 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
   // Build conversation messages
   const conversation = [];
   const messageIds = [];
-  const toolResultRequests = []; // Separate requests for tool results
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -195,13 +192,6 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
     });
 
     messageIds.push({ messageId: msgId, role });
-
-    // If message has tool_results, also build separate tool result requests for bidi
-    if (msg.tool_results?.length > 0) {
-      for (const tr of msg.tool_results) {
-        toolResultRequests.push(buildToolResultRequest(tr));
-      }
-    }
   }
 
   // Map reasoning effort
@@ -267,25 +257,9 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
     }
   });
 
-  return { request, toolResultRequests };
+  return { request };
 }
 
-/**
- * Build a tool result request for bidi streaming.
- */
-function buildToolResultRequest(tr) {
-  return create(StreamUnifiedChatRequestWithToolsSchema, {
-    clientSideToolV2Result: create(ClientSideToolV2ResultSchema, {
-      tool: CLIENT_SIDE_TOOL_V2_MCP,
-      mcpResult: create(MCPResultSchema, {
-        selectedTool: tr.name || tr.tool_name || "",
-        result: tr.result || tr.content || "",
-      }),
-      toolCallId: tr.tool_call_id || "",
-      modelCallId: tr.model_call_id || "",
-    })
-  });
-}
 
 // ==================== RESPONSE TYPES ====================
 
