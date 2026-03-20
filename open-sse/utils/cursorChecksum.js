@@ -90,9 +90,12 @@ export function generateCursorChecksum(machineId) {
  * @param {string} accessToken - Bearer token
  * @param {string} machineId - Machine ID (or will be generated from token)
  * @param {boolean} ghostMode - Enable ghost mode (privacy)
+ * @param {Object} [opts] - Additional options
+ * @param {string} [opts.clientVersion="2.3.41"] - Cursor client version
+ * @param {Object} [opts.headers={}] - Config headers to merge (e.g. from PROVIDERS.cursor.headers)
  * @returns {Object} - Headers object
  */
-export function buildCursorHeaders(accessToken, machineId = null, ghostMode = true) {
+export function buildCursorHeaders(accessToken, machineId = null, ghostMode = true, { clientVersion = "2.3.41", headers: configHeaders = {} } = {}) {
   // Clean token if it has prefix
   const cleanToken = accessToken.includes("::")
     ? accessToken.split("::")[1]
@@ -120,15 +123,12 @@ export function buildCursorHeaders(accessToken, machineId = null, ghostMode = tr
   }
 
   return {
+    ...configHeaders,
     "authorization": `Bearer ${cleanToken}`,
-    "connect-accept-encoding": "gzip",
-    "connect-protocol-version": "1",
-    "content-type": "application/connect+proto",
-    "user-agent": "connect-es/1.6.1",
     "x-amzn-trace-id": `Root=${crypto.randomUUID()}`,
     "x-client-key": clientKey,
     "x-cursor-checksum": checksum,
-    "x-cursor-client-version": "2.3.41",
+    "x-cursor-client-version": clientVersion,
     "x-cursor-client-type": "ide",
     "x-cursor-client-os": os,
     "x-cursor-client-arch": arch,

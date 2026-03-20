@@ -1,0 +1,383 @@
+syntax = "proto3";
+
+package aiserver.v1;
+
+// ==================== Service ====================
+
+service ChatService {
+  // Bidirectional streaming chat with tools
+  rpc StreamUnifiedChatWithTools(stream StreamUnifiedChatRequestWithTools)
+      returns (stream StreamUnifiedChatResponseWithTools);
+
+  // Idempotent variant — bidirectional streaming
+  rpc StreamUnifiedChatWithToolsIdempotent(stream StreamUnifiedChatRequestWithToolsIdempotent)
+      returns (stream StreamUnifiedChatResponseWithToolsIdempotent);
+}
+
+// ==================== Enums ====================
+
+enum UnifiedMode {
+  UNIFIED_MODE_UNSPECIFIED = 0;
+  UNIFIED_MODE_NORMAL = 1;
+  UNIFIED_MODE_AGENT = 2;
+  UNIFIED_MODE_CMD_K = 3;
+  UNIFIED_MODE_CUSTOM = 4;
+}
+
+enum ThinkingLevel {
+  THINKING_LEVEL_UNSPECIFIED = 0;
+  THINKING_LEVEL_MEDIUM = 1;
+  THINKING_LEVEL_HIGH = 2;
+}
+
+enum ClientSideToolV2 {
+  CLIENT_SIDE_TOOL_V2_UNSPECIFIED = 0;
+  READ_SEMSEARCH_FILES = 1;
+  RIPGREP_SEARCH = 3;
+  READ_FILE = 5;
+  LIST_DIR = 6;
+  EDIT_FILE = 7;
+  FILE_SEARCH = 8;
+  SEMANTIC_SEARCH_FULL = 9;
+  DELETE_FILE = 11;
+  REAPPLY = 12;
+  RUN_TERMINAL_COMMAND_V2 = 15;
+  FETCH_RULES = 16;
+  WEB_SEARCH = 18;
+  MCP = 19;
+  SEARCH_SYMBOLS = 23;
+  BACKGROUND_COMPOSER_FOLLOWUP = 24;
+  KNOWLEDGE_BASE = 25;
+  FETCH_PULL_REQUEST = 26;
+  DEEP_SEARCH = 27;
+  CREATE_DIAGRAM = 28;
+  FIX_LINTS = 29;
+  READ_LINTS = 30;
+  GO_TO_DEFINITION = 31;
+  TASK = 32;
+  AWAIT_TASK = 33;
+  TODO_READ = 34;
+  TODO_WRITE = 35;
+  EDIT_FILE_V2 = 38;
+  LIST_DIR_V2 = 39;
+  READ_FILE_V2 = 40;
+  RIPGREP_RAW_SEARCH = 41;
+  GLOB_FILE_SEARCH = 42;
+  CREATE_PLAN = 43;
+  LIST_MCP_RESOURCES = 44;
+  READ_MCP_RESOURCE = 45;
+  READ_PROJECT = 46;
+  UPDATE_PROJECT = 47;
+  TASK_V2 = 48;
+  CALL_MCP_TOOL = 49;
+  APPLY_AGENT_DIFF = 50;
+  ASK_QUESTION = 51;
+  SWITCH_MODE = 52;
+  GENERATE_IMAGE = 53;
+  COMPUTER_USE = 54;
+  WRITE_SHELL_STDIN = 55;
+}
+
+// ==================== Error Details ====================
+
+// ErrorDetails — extracted from Cursor's aiserver.v1.ErrorDetails
+// Used to parse rich error information from ConnectRPC error details.
+message ErrorDetails {
+  enum Error {
+    ERROR_UNSPECIFIED = 0;
+    ERROR_BAD_API_KEY = 1;
+    ERROR_NOT_LOGGED_IN = 2;
+    ERROR_INVALID_AUTH_ID = 3;
+    ERROR_NOT_HIGH_ENOUGH_PERMISSIONS = 4;
+    ERROR_BAD_MODEL_NAME = 5;
+    ERROR_USER_NOT_FOUND = 6;
+    ERROR_FREE_USER_RATE_LIMIT_EXCEEDED = 7;
+    ERROR_PRO_USER_RATE_LIMIT_EXCEEDED = 8;
+    ERROR_FREE_USER_USAGE_LIMIT = 9;
+    ERROR_PRO_USER_USAGE_LIMIT = 10;
+    ERROR_AUTH_TOKEN_NOT_FOUND = 11;
+    ERROR_AUTH_TOKEN_EXPIRED = 12;
+    ERROR_OPENAI = 13;
+    ERROR_OPENAI_RATE_LIMIT_EXCEEDED = 14;
+    ERROR_OPENAI_ACCOUNT_LIMIT_EXCEEDED = 15;
+    ERROR_TASK_UUID_NOT_FOUND = 16;
+    ERROR_TASK_NO_PERMISSIONS = 17;
+    ERROR_AGENT_REQUIRES_LOGIN = 18;
+    ERROR_AGENT_ENGINE_NOT_FOUND = 19;
+    ERROR_MAX_TOKENS = 20;
+    ERROR_USER_ABORTED_REQUEST = 21;
+    ERROR_GENERIC_RATE_LIMIT_EXCEEDED = 22;
+    ERROR_PRO_USER_ONLY = 23;
+    ERROR_API_KEY_NOT_SUPPORTED = 24;
+    ERROR_TIMEOUT = 25;
+    ERROR_SLASH_EDIT_FILE_TOO_LONG = 26;
+    ERROR_FILE_UNSUPPORTED = 27;
+    ERROR_GPT_4_VISION_PREVIEW_RATE_LIMIT = 28;
+    ERROR_CUSTOM_MESSAGE = 29;
+    ERROR_OUTDATED_CLIENT = 30;
+    ERROR_CLAUDE_IMAGE_TOO_LARGE = 31;
+    ERROR_GITGRAPH_NOT_FOUND = 32;
+    ERROR_FILE_NOT_FOUND = 33;
+    ERROR_API_KEY_RATE_LIMIT = 34;
+    ERROR_DEBOUNCED = 35;
+    ERROR_BAD_REQUEST = 36;
+    ERROR_REPOSITORY_SERVICE_REPOSITORY_IS_NOT_INITIALIZED = 37;
+    ERROR_UNAUTHORIZED = 38;
+    ERROR_NOT_FOUND = 39;
+    ERROR_DEPRECATED = 40;
+    ERROR_RESOURCE_EXHAUSTED = 41;
+    ERROR_BAD_USER_API_KEY = 42;
+    ERROR_CONVERSATION_TOO_LONG = 43;
+    ERROR_USAGE_PRICING_REQUIRED = 44;
+    ERROR_USAGE_PRICING_REQUIRED_CHANGEABLE = 45;
+    ERROR_GITHUB_NO_USER_CREDENTIALS = 46;
+    ERROR_GITHUB_USER_NO_ACCESS = 47;
+    ERROR_GITHUB_APP_NO_ACCESS = 48;
+    ERROR_GITHUB_MULTIPLE_OWNERS = 49;
+    ERROR_RATE_LIMITED = 50;
+    ERROR_RATE_LIMITED_CHANGEABLE = 51;
+  }
+  Error error = 1;
+  CustomErrorDetails details = 2;
+  optional bool is_expected = 3;
+}
+
+message CustomErrorDetails {
+  string title = 1;
+  string detail = 2;
+  map<string, string> additional_info = 7;
+}
+
+// ==================== Sub-Messages ====================
+
+// ConversationMessage — field 1 of StreamUnifiedChatRequest
+message ConversationMessage {
+  optional string text = 1;          // MSG_CONTENT
+  optional uint32 role = 2;          // MSG_ROLE: 1=user, 2=assistant
+  optional string message_id = 13;   // MSG_ID
+  repeated ToolResultInMessage tool_results = 18;  // MSG_TOOL_RESULTS
+  optional uint32 chat_mode_enum = 47;  // MSG_UNIFIED_MODE: 1=CHAT
+  optional string server_bubble_id = 14;
+}
+
+// ToolResult within a ConversationMessage
+message ToolResultInMessage {
+  optional string tool_call_id = 1;
+  optional string tool_name = 2;
+  optional uint32 tool_index = 3;
+  optional string raw_args = 5;
+  optional ClientSideToolV2Result result = 8;
+  optional ClientSideToolV2Call tool_call = 11;
+  optional string model_call_id = 12;
+}
+
+// ExplicitContext — field 3
+message ExplicitContext {
+  optional string instruction = 1;
+}
+
+// ModelDetails — field 5
+message ModelDetails {
+  optional string model_name = 1;
+  optional string api_key = 2;
+  optional bool enable_ghost_mode = 3;
+  optional bytes azure_state = 4;    // AzureState (opaque for now)
+  optional bool enable_slow_pool = 5;
+  optional string openai_api_base_url = 6;
+  optional bytes bedrock_state = 7;  // BedrockState (opaque)
+  optional bool max_mode = 8;
+}
+
+message CursorPosition {
+  int32 line = 1;
+  int32 column = 2;
+}
+
+message CursorRange {
+  optional CursorPosition start_position = 1;
+  optional CursorPosition end_position = 2;
+}
+
+// CurrentFileInfo — field 15
+message CurrentFileInfo {
+  optional string path = 1;
+  optional string contents = 2;
+  optional CursorPosition cursor_position = 3;
+  optional string language_id = 5;
+  optional CursorRange selection = 6;
+  optional int32 total_number_of_lines = 8;
+  optional int32 contents_start_at_line = 9;
+}
+
+// EnvironmentInfo — field 26
+message EnvironmentInfo {
+  optional string exthost_platform = 1;
+  optional string exthost_arch = 2;
+  optional string exthost_release = 3;
+  optional string exthost_shell = 4;
+  optional string local_timestamp = 5;
+  repeated string workspace_uris = 6;
+  optional string cursor_version = 7;
+  optional bool is_remote = 8;
+  optional string local_os_type = 9;
+  optional string home_directory = 10;
+  optional string local_timezone = 11;
+}
+
+// MessageId — field 30 (repeated)
+message ConversationMessageId {
+  optional string message_id = 1;
+  optional string summary_id = 2;
+  optional uint32 role = 3;
+}
+
+// MCPTool — field 34 (repeated)
+message MCPTool {
+  optional string tool_name = 1;
+  optional string description = 2;
+  optional string input_schema_json = 3;
+  optional string server_name = 4;
+}
+
+// ==================== Request ====================
+
+// StreamUnifiedChatRequest — the huge request message
+message StreamUnifiedChatRequest {
+  repeated ConversationMessage conversation = 1;
+  optional bool allow_long_file_scan = 2;
+  optional ExplicitContext explicit_context = 3;
+  optional bool can_handle_filenames_after_language_ids = 4;
+  optional ModelDetails model_details = 5;
+  // fields 6-7: linter_errors, documentation_identifiers (unused by 9router)
+  optional string use_web = 8;
+  // fields 9-12: external_links, project_context, diffs, compress_edits (unused)
+  optional bool should_cache = 13;
+  // field 14: multi_file_linter_errors (unused)
+  optional CurrentFileInfo current_file = 15;
+  // fields 16-18: recent_edits, use_reference_composer_diff_prompt, file_diff_histories (unused)
+  optional bool use_new_compression_scheme = 19;
+  // fields 20-21: additional_ranked_context, quotes (unused)
+  optional bool is_chat = 22;
+  optional string conversation_id = 23;
+  // fields 24-25: repository_info (unused)
+  optional EnvironmentInfo environment_info = 26;
+  optional bool is_agentic = 27;
+  // field 28: conversation_summary (unused)
+  repeated ClientSideToolV2 supported_tools = 29;
+  repeated ConversationMessageId full_conversation_headers_only = 30;
+  // fields 31-32: yolo_mode (unused)
+  optional bool use_unified_chat_prompt = 33;
+  repeated MCPTool mcp_tools = 34;
+  optional bool use_full_inputs_context = 35;
+  optional bool is_resume = 36;
+  // fields 37-38: model_fallbacks (unused)
+  optional bool unknown38 = 38;
+  // fields 39-45: various unused fields
+  optional UnifiedMode unified_mode = 46;
+  optional string tools_requiring_accepted_return = 47;
+  optional bool should_disable_tools = 48;
+  optional ThinkingLevel thinking_level = 49;
+  // field 50: should_use_chat_prompt (unused)
+  optional bool uses_rules = 51;
+  // field 52: query_only_repo_access (unused)
+  optional bool mode_uses_auto_apply = 53;
+  optional string unified_mode_name = 54;
+}
+
+// StreamUnifiedChatRequestWithTools — top level wrapper (field 1 = request, field 2 = tool_result)
+message StreamUnifiedChatRequestWithTools {
+  optional StreamUnifiedChatRequest request = 1;
+  optional ClientSideToolV2Result client_side_tool_v2_result = 2;
+}
+
+// ==================== Idempotent Wrappers ====================
+
+message StreamUnifiedChatRequestWithToolsIdempotent {
+  optional StreamUnifiedChatRequestWithTools client_chunk = 1;
+  // field 2: abort, field 3: close (unused)
+  optional string idempotency_key = 4;
+  optional uint32 seqno = 5;
+}
+
+// ==================== Tool Results ====================
+
+message MCPResult {
+  optional string selected_tool = 1;
+  optional string result = 2;
+}
+
+message ClientSideToolV2Result {
+  optional ClientSideToolV2 tool = 1;
+  // fields 2-7: various result oneofs (unused in 9router — we only use mcp_result)
+  optional bytes error = 8;
+  optional MCPResult mcp_result = 28;
+  optional string tool_call_id = 35;
+  optional string model_call_id = 48;
+  optional uint32 tool_index = 49;
+  optional bytes attachments = 50;
+}
+
+// ==================== Tool Calls (Response) ====================
+
+message MCPCallParams {
+  repeated MCPCallTool tools = 1;
+
+  message MCPCallTool {
+    optional string name = 1;
+    optional string description = 2;
+    optional string parameters = 3;
+    optional string server_name = 4;
+  }
+}
+
+message ClientSideToolV2Call {
+  optional ClientSideToolV2 tool = 1;
+  optional string tool_call_id = 3;
+  optional double timeout_ms = 6;
+  optional string name = 9;
+  optional string raw_args = 10;
+  optional bool is_streaming = 14;
+  optional bool is_last_message = 15;
+  optional MCPCallParams mcp_params = 27;
+  optional uint32 tool_index = 48;
+  optional string model_call_id = 49;
+  optional bool internal = 51;
+}
+
+// ==================== Response ====================
+
+message StreamUnifiedChatResponseInner {
+  optional string text = 1;
+  optional string server_bubble_id = 22;
+  optional string debugging_only_chat_prompt = 2;
+  optional int32 debugging_only_token_count = 3;
+  // fields 4-11: citations, references (unused)
+  // field 12: status_updates (unused)
+  // field 13: tool_call (legacy, unused)
+  // field 25: thinking
+  optional Thinking thinking = 25;
+  optional string usage_uuid = 27;
+}
+
+message Thinking {
+  optional string text = 1;
+  optional string signature = 2;
+}
+
+// StreamUnifiedChatResponseWithTools — top level response wrapper
+message StreamUnifiedChatResponseWithTools {
+  optional ClientSideToolV2Call tool_call = 1;
+  optional StreamUnifiedChatResponseInner response = 2;
+  // field 3: conversation_summary
+  // field 4: user_rules
+  // field 5: stream_start
+  // field 30: usage_info
+}
+
+// ==================== Idempotent Response Wrappers ====================
+
+message StreamUnifiedChatResponseWithToolsIdempotent {
+  optional StreamUnifiedChatResponseWithTools server_chunk = 1;
+  optional bytes welcome_message = 3;
+  optional uint32 seqno_ack = 4;
+}

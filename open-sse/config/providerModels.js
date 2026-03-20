@@ -126,6 +126,10 @@ export const PROVIDER_MODELS = {
     { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview" },
     { id: "gpt-5.2", name: "GPT 5.2" },
     { id: "gpt-5.3-codex", name: "GPT 5.3 Codex" },
+    // .max variants — virtual suffix stripped by executor, enables Cursor max mode
+    { id: "default.max", name: "Auto (Max Mode)" },
+    { id: "claude-4.6-opus-high-thinking.max", name: "Claude 4.6 Opus High Thinking (Max Mode)" },
+    { id: "claude-4.6-sonnet-medium-thinking.max", name: "Claude 4.6 Sonnet Medium Thinking (Max Mode)" },
   ],
   kmc: [  // Kimi Coding
     { id: "kimi-k2.5", name: "Kimi K2.5" },
