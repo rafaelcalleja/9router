@@ -228,101 +228,88 @@ export class CursorExecutor extends BaseExecutor {
             controller.close();
             return;
           }
-          // Serialize frame as JSON line for the TransformStream
-          controller.enqueue(encoder.encode(JSON.stringify(value) + "\n"));
+          controller.enqueue(value);
         } catch (err) {
           controller.close();
         }
       }
     });
 
-    // TransformStream: convert serialized frame objects → SSE text chunks
+    // TransformStream: convert frame objects → SSE text chunks
     const sseTransform = new TransformStream({
-      transform(chunk, controller) {
-        const text = new TextDecoder().decode(chunk);
-        const lines = text.split("\n").filter(l => l.trim());
+      transform(frame, controller) {
+        // Error frame
+        if (frame.error) {
+          if (state.chunkCount === 0 && state.totalContent === "" && state.toolCallsMap.size === 0) {
+            const errMsg = frame.error.errorDetails?.title
+              || frame.error.errorDetails?.detail
+              || frame.error.message
+              || "API Error";
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              error: { message: errMsg, type: "api_error", code: "" }
+            })}\n\n`));
+          }
+          state.finishEmitted = true;
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          return;
+        }
 
-        for (const line of lines) {
-          let frame;
-          try {
-            frame = JSON.parse(line);
-          } catch {
-            continue;
+        // Tool call frame
+        if (frame.toolCall) {
+          const tc = frame.toolCall;
+
+          if (state.chunkCount === 0) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              id: responseId, object: "chat.completion.chunk", created, model,
+              choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
+            })}\n\n`));
+            state.chunkCount++;
           }
 
-          // Error frame
-          if (frame.error) {
-            if (state.chunkCount === 0 && state.totalContent === "" && state.toolCallsMap.size === 0) {
-              const errMsg = frame.error.errorDetails?.title
-                || frame.error.errorDetails?.detail
-                || frame.error.message
-                || "API Error";
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                error: { message: errMsg, type: "api_error", code: "" }
-              })}\n\n`));
-            }
-            state.finishEmitted = true;
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            return;
-          }
-
-          // Tool call frame
-          if (frame.toolCall) {
-            const tc = frame.toolCall;
-
-            if (state.chunkCount === 0) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                id: responseId, object: "chat.completion.chunk", created, model,
-                choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
-              })}\n\n`));
-              state.chunkCount++;
-            }
-
-            if (state.toolCallsMap.has(tc.id)) {
-              const existing = state.toolCallsMap.get(tc.id);
-              existing.function.arguments += tc.rawArgs || "";
-              existing.isLast = tc.isLast;
-              if (tc.rawArgs) {
-                state.emittedToolCallIds.add(tc.id);
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                  id: responseId, object: "chat.completion.chunk", created, model,
-                  choices: [{ index: 0, delta: { tool_calls: [{
-                    index: existing.index, id: tc.id, type: "function",
-                    function: { name: tc.name, arguments: tc.rawArgs }
-                  }] }, finish_reason: null }]
-                })}\n\n`));
-                state.chunkCount++;
-              }
-            } else {
-              const toolCallIndex = state.toolCalls.length;
-              state.finalizedIds.add(tc.id);
-              state.toolCalls.push({ ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
-              state.toolCallsMap.set(tc.id, { ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
+          if (state.toolCallsMap.has(tc.id)) {
+            const existing = state.toolCallsMap.get(tc.id);
+            existing.function.arguments += tc.rawArgs || "";
+            existing.isLast = tc.isLast;
+            if (tc.rawArgs) {
               state.emittedToolCallIds.add(tc.id);
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                 id: responseId, object: "chat.completion.chunk", created, model,
                 choices: [{ index: 0, delta: { tool_calls: [{
-                  index: toolCallIndex, id: tc.id, type: "function",
-                  function: { name: tc.name, arguments: tc.rawArgs || "" }
+                  index: existing.index, id: tc.id, type: "function",
+                  function: { name: tc.name, arguments: tc.rawArgs }
                 }] }, finish_reason: null }]
               })}\n\n`));
               state.chunkCount++;
             }
-          }
-
-          // Text frame
-          if (frame.text) {
-            state.totalContent += frame.text;
+          } else {
+            const toolCallIndex = state.toolCalls.length;
+            state.finalizedIds.add(tc.id);
+            state.toolCalls.push({ ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
+            state.toolCallsMap.set(tc.id, { ...tc, index: toolCallIndex, type: "function", function: { name: tc.name, arguments: tc.rawArgs || "" } });
+            state.emittedToolCallIds.add(tc.id);
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
               id: responseId, object: "chat.completion.chunk", created, model,
-              choices: [{ index: 0,
-                delta: state.chunkCount === 0 && state.toolCalls.length === 0
-                  ? { role: "assistant", content: frame.text }
-                  : { content: frame.text },
-                finish_reason: null }]
+              choices: [{ index: 0, delta: { tool_calls: [{
+                index: toolCallIndex, id: tc.id, type: "function",
+                function: { name: tc.name, arguments: tc.rawArgs || "" }
+              }] }, finish_reason: null }]
             })}\n\n`));
             state.chunkCount++;
           }
+        }
+
+        // Text frame
+        if (frame.text) {
+          state.totalContent += frame.text;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            id: responseId, object: "chat.completion.chunk", created, model,
+            choices: [{ index: 0,
+              delta: state.chunkCount === 0 && state.toolCalls.length === 0
+                ? { role: "assistant", content: frame.text }
+                : { content: frame.text },
+              finish_reason: null }]
+          })}\n\n`));
+          state.chunkCount++;
         }
       },
 
