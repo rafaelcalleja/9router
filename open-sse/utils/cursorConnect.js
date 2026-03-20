@@ -298,6 +298,48 @@ function buildToolResultRequest(tr) {
  * @property {string|null} error - Error message if any
  */
 
+// ==================== FRAME BUILDER ====================
+
+/**
+ * Build a normalized frame object from a ConnectRPC response.
+ * Shared between makeConnectRequest (buffered) and streamConnectRequest (streaming).
+ *
+ * @param {Object} response - ConnectRPC StreamUnifiedChatResponseWithToolsIdempotent
+ * @returns {{ text: string|null, thinking: Object|null, serverBubbleId: string|null, usageUuid: string|null, toolCall: Object|null, error: null }}
+ */
+function buildFrame(response) {
+  const text = response.response?.text || "";
+  const thinking = response.response?.thinking;
+
+  const frame = {
+    text: text || null,
+    thinking: thinking ? { text: thinking.text || "", signature: thinking.signature || "" } : null,
+    serverBubbleId: response.response?.serverBubbleId || null,
+    usageUuid: response.response?.usageUuid || null,
+    toolCall: null,
+    error: null,
+  };
+
+  if (response.toolCall?.toolCallId) {
+    const tc = response.toolCall;
+    const mcpToolName = tc.mcpParams?.tools?.[0]?.name || tc.name || "";
+    const isLast = tc.isLastMessage || false;
+
+    frame.toolCall = {
+      id: tc.toolCallId,
+      name: mcpToolName,
+      rawArgs: tc.rawArgs || "",
+      mcpParams: tc.mcpParams,
+      modelCallId: tc.modelCallId || "",
+      isPartial: !isLast && !tc.rawArgs,
+      isLast,
+      toolIndex: tc.toolIndex || 0,
+    };
+  }
+
+  return frame;
+}
+
 // ==================== MAIN REQUEST FUNCTION ====================
 
 /**
@@ -343,48 +385,19 @@ export async function makeConnectRequest(config, messages, modelName, tools, opt
     for await (const response of stream) {
       frameCount++;
       debugLog(`[CONNECT] Frame #${frameCount}: text=${(response.response?.text || '').length}chars, toolCall=${!!response.toolCall?.toolCallId}`);
-      // Extract text
-      const text = response.response?.text || "";
-      const thinking = response.response?.thinking;
-      const serverBubbleId = response.response?.serverBubbleId || "";
+      const frame = buildFrame(response);
 
-      // Build frame object for SSE transformation
-      const frame = {
-        text: text || null,
-        thinking: thinking ? { text: thinking.text || "", signature: thinking.signature || "" } : null,
-        serverBubbleId: serverBubbleId || null,
-        usageUuid: response.response?.usageUuid || null,
-        toolCall: null,
-        error: null,
-      };
+      if (frame.text) textTotal += frame.text;
+      if (frame.thinking?.text) thinkingText += frame.thinking.text;
 
-      if (text) textTotal += text;
-      if (thinking?.text) thinkingText += thinking.text;
-
-      // Extract tool call
-      if (response.toolCall?.toolCallId) {
-        const tc = response.toolCall;
-        const mcpToolName = tc.mcpParams?.tools?.[0]?.name || tc.name || "";
-        const isLast = tc.isLastMessage || false;
-
-        frame.toolCall = {
-          id: tc.toolCallId,
-          name: mcpToolName,
-          rawArgs: tc.rawArgs || "",
-          mcpParams: tc.mcpParams,
-          modelCallId: tc.modelCallId || "",
-          isPartial: !isLast && !tc.rawArgs,
-          isLast,
-          toolIndex: tc.toolIndex || 0,
-        };
-
+      if (frame.toolCall) {
         toolCalls.push(frame.toolCall);
 
         // Got a complete tool call — close the request stream and stop reading.
         // Cursor's bidi stream expects tool results back; since 9router is a proxy
         // (not a bidi client), we break here and let the caller re-send with results.
-        if (isLast || tc.rawArgs) {
-          debugLog(`[CONNECT] Got complete tool_call (isLast=${isLast}), closing stream`);
+        if (frame.toolCall.isLast || frame.toolCall.rawArgs) {
+          debugLog(`[CONNECT] Got complete tool_call (isLast=${frame.toolCall.isLast}), closing stream`);
           frames.push(frame);
           break;
         }
@@ -448,41 +461,14 @@ export async function* streamConnectRequest(config, messages, modelName, tools, 
     for await (const response of stream) {
       frameCount++;
       debugLog(`[CONNECT-STREAM] Frame #${frameCount}: text=${(response.response?.text || '').length}chars, toolCall=${!!response.toolCall?.toolCallId}`);
+      const frame = buildFrame(response);
 
-      const text = response.response?.text || "";
-      const thinking = response.response?.thinking;
-
-      const frame = {
-        text: text || null,
-        thinking: thinking ? { text: thinking.text || "", signature: thinking.signature || "" } : null,
-        serverBubbleId: response.response?.serverBubbleId || null,
-        usageUuid: response.response?.usageUuid || null,
-        toolCall: null,
-        error: null,
-      };
-
-      // Extract tool call
-      if (response.toolCall?.toolCallId) {
-        const tc = response.toolCall;
-        const mcpToolName = tc.mcpParams?.tools?.[0]?.name || tc.name || "";
-        const isLast = tc.isLastMessage || false;
-
-        frame.toolCall = {
-          id: tc.toolCallId,
-          name: mcpToolName,
-          rawArgs: tc.rawArgs || "",
-          mcpParams: tc.mcpParams,
-          modelCallId: tc.modelCallId || "",
-          isPartial: !isLast && !tc.rawArgs,
-          isLast,
-          toolIndex: tc.toolIndex || 0,
-        };
-
+      if (frame.toolCall) {
         // Complete tool call — yield and stop.
         // Cursor's bidi stream expects tool results back; 9router proxies
         // the tool call to the caller who re-sends with results.
-        if (isLast || tc.rawArgs) {
-          debugLog(`[CONNECT-STREAM] Got complete tool_call (isLast=${isLast}), ending stream`);
+        if (frame.toolCall.isLast || frame.toolCall.rawArgs) {
+          debugLog(`[CONNECT-STREAM] Got complete tool_call (isLast=${frame.toolCall.isLast}), ending stream`);
           yield frame;
           return;
         }
