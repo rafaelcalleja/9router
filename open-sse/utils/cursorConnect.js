@@ -265,11 +265,8 @@ function buildConnectRequest(messages, modelName, tools = [], reasoningEffort = 
 
 /**
  * @typedef {Object} CursorResponse
- * @property {string} text - Accumulated text
- * @property {Array} toolCalls - Tool calls [{id, name, rawArgs, mcpParams, modelCallId, isPartial, isLast}]
- * @property {string} thinkingText - Thinking/reasoning text
- * @property {Array} frames - Raw decoded response frames for SSE streaming
- * @property {string|null} error - Error message if any
+ * @property {Array} frames - Raw decoded response frames
+ * @property {Object|null} error - Error info if any
  */
 
 // ==================== FRAME BUILDER ====================
@@ -339,9 +336,6 @@ export async function makeConnectRequest(config, messages, modelName, tools, opt
   debugLog(`[CONNECT] Request built: mcpTools=${request.request?.mcpTools?.length || 0}, isAgentic=${request.request?.isAgentic}, unifiedMode=${request.request?.unifiedMode}`);
 
   const frames = [];
-  let textTotal = "";
-  let thinkingText = "";
-  const toolCalls = [];
   let error = null;
 
   // Keep the request stream alive until we've received all response frames.
@@ -361,11 +355,7 @@ export async function makeConnectRequest(config, messages, modelName, tools, opt
       debugLog(`[CONNECT] Frame #${frameCount}: text=${(response.response?.text || '').length}chars, toolCall=${!!response.toolCall?.toolCallId}`);
       const frame = buildFrame(response);
 
-      if (frame.text) textTotal += frame.text;
-      if (frame.thinking?.text) thinkingText += frame.thinking.text;
-
       if (frame.toolCall) {
-        toolCalls.push(frame.toolCall);
 
         // Got a complete tool call — close the request stream and stop reading.
         // Cursor's bidi stream expects tool results back; since 9router is a proxy
@@ -391,13 +381,13 @@ export async function makeConnectRequest(config, messages, modelName, tools, opt
   // Abort error after break is expected when we got tool_calls —
   // breaking the for-await abandons the ConnectRPC stream mid-read,
   // which causes a cancel/abort error. This is expected, not a real failure.
-  if (error && toolCalls.length > 0 && frames.length > 0) {
-    debugLog(`[CONNECT] Clearing expected abort error — got ${toolCalls.length} tool_calls with ${frames.length} frames`);
+  if (error && frames.length > 0 && frames.some(f => f.toolCall)) {
+    debugLog(`[CONNECT] Clearing expected abort error — got tool_calls with ${frames.length} frames`);
     error = null;
   }
 
-  debugLog(`[CONNECT] Result: frames=${frames.length}, text=${textTotal.length}chars, toolCalls=${toolCalls.length}, error=${error?.message || 'none'}`);
-  return { text: textTotal, toolCalls, thinkingText, frames, error };
+  debugLog(`[CONNECT] Result: frames=${frames.length}, error=${error?.message || 'none'}`);
+  return { frames, error };
 }
 
 /**
